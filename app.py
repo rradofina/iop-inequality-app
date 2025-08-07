@@ -1119,11 +1119,10 @@ def main():
         )
         
         if use_sample_ppp:
-            # Load sample CPI-PPP file from parent directory
+            # Load sample CPI-PPP file from data directory
             try:
-                import os
-                parent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-                sample_ppp_path = os.path.join(parent_dir, 'cpi_ppp.xlsx')
+                app_dir = os.path.dirname(os.path.abspath(__file__))
+                sample_ppp_path = os.path.join(app_dir, 'data', 'cpi_ppp.xlsx')
                 
                 # Check if file exists
                 if os.path.exists(sample_ppp_path):
@@ -1133,7 +1132,7 @@ def main():
                     st.success("✅ Sample CPI-PPP file loaded")
                     cpi_ppp_loaded = True
                 else:
-                    st.error("❌ Sample CPI-PPP file not found in parent directory")
+                    st.error("❌ Sample CPI-PPP file not found in data directory")
                     cpi_ppp_file = None
                     cpi_ppp_loaded = False
             except Exception as e:

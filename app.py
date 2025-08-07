@@ -244,9 +244,26 @@ class ConditionalTree:
     
     def get_tree_plot(self, feature_names):
         """Generate tree visualization."""
-        fig, ax = plt.subplots(figsize=(20, 10))
-        plot_tree(self.tree, feature_names=feature_names, 
-                 filled=True, rounded=True, ax=ax, fontsize=10)
+        # Calculate better figure size based on tree depth
+        n_nodes = self.tree.tree_.node_count
+        depth = self.tree.get_depth()
+        
+        # Adjust figure size based on tree complexity
+        width = max(20, n_nodes * 2)
+        height = max(10, depth * 3)
+        
+        fig, ax = plt.subplots(figsize=(width, height), dpi=80)
+        plot_tree(self.tree, 
+                 feature_names=feature_names, 
+                 filled=True, 
+                 rounded=True, 
+                 ax=ax, 
+                 fontsize=12,
+                 proportion=True,  # Show proportions
+                 precision=2,  # Decimal precision
+                 impurity=False)  # Don't show impurity to save space
+        
+        plt.tight_layout()
         return fig
     
     def get_tree_rules(self, feature_names):
@@ -637,11 +654,26 @@ def main():
                     # Add visualization type selector
                     viz_type = st.radio(
                         "Select visualization type:",
-                        ["Text Rules", "Tree Diagram"],
+                        ["Tree Diagram", "Text Rules"],
                         horizontal=True
                     )
                     
-                    if viz_type == "Text Rules":
+                    if viz_type == "Tree Diagram":
+                        st.info("💡 Tip: The tree shows how the population is split into types based on circumstances. Each box represents a decision or type.")
+                        
+                        # Create a container with horizontal scroll for large trees
+                        with st.container():
+                            tree_fig = ctree_results['model'].get_tree_plot(selected_circumstances)
+                            
+                            # Check if tree is large
+                            if ctree_results['n_types'] > 8:
+                                st.warning("⚠️ Large tree detected. You can scroll horizontally to see all branches.")
+                                # Use columns to create scrollable area
+                                st.pyplot(tree_fig, use_container_width=False)
+                            else:
+                                st.pyplot(tree_fig, use_container_width=True)
+                        
+                    elif viz_type == "Text Rules":
                         st.write("**Decision rules for each type:**")
                         rules = ctree_results['model'].get_tree_rules(selected_circumstances)
                         
@@ -661,11 +693,6 @@ def main():
                             
                         if len(leaf_rules) > 10:
                             st.info(f"Showing first 10 types out of {len(leaf_rules)} total")
-                    
-                    else:
-                        with st.expander("View Full Tree Diagram"):
-                            tree_fig = ctree_results['model'].get_tree_plot(selected_circumstances)
-                            st.pyplot(tree_fig)
                     
                     # Type distribution
                     if ctree_results['n_types'] <= 20:

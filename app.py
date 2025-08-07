@@ -50,6 +50,29 @@ st.markdown("""
         border-radius: 0.5rem;
         margin: 0.5rem 0;
     }
+    .stTabs [data-baseweb="tab-list"] {
+        gap: 8px;
+    }
+    .stTabs [data-baseweb="tab"] {
+        height: 50px;
+        white-space: pre-wrap;
+        background-color: #f0f2f6;
+        border-radius: 25px;
+        padding: 10px 20px;
+        font-weight: 600;
+    }
+    .stTabs [aria-selected="true"] {
+        background-color: #1f77b4;
+        color: white;
+    }
+    .tree-rule {
+        background-color: #f8f9fa;
+        border-left: 4px solid #1f77b4;
+        padding: 10px 15px;
+        margin: 10px 0;
+        border-radius: 4px;
+        font-family: monospace;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -225,6 +248,52 @@ class ConditionalTree:
         plot_tree(self.tree, feature_names=feature_names, 
                  filled=True, rounded=True, ax=ax, fontsize=10)
         return fig
+    
+    def get_tree_rules(self, feature_names):
+        """Extract tree rules as text."""
+        from sklearn.tree import _tree
+        
+        tree = self.tree.tree_
+        feature_name = [
+            feature_names[i] if i != _tree.TREE_UNDEFINED else "undefined!"
+            for i in tree.feature
+        ]
+        
+        def recurse(node, depth, parent_rule="Root"):
+            indent = "  " * depth
+            rules = []
+            
+            if tree.feature[node] != _tree.TREE_UNDEFINED:
+                name = feature_name[node]
+                threshold = tree.threshold[node]
+                n_samples = tree.n_node_samples[node]
+                
+                rules.append({
+                    'depth': depth,
+                    'rule': f"{parent_rule}",
+                    'samples': n_samples,
+                    'split': f"{name} <= {threshold:.2f}"
+                })
+                
+                rules.extend(recurse(tree.children_left[node], depth + 1, 
+                                   f"{parent_rule} AND {name} <= {threshold:.2f}"))
+                rules.extend(recurse(tree.children_right[node], depth + 1,
+                                   f"{parent_rule} AND {name} > {threshold:.2f}"))
+            else:
+                # Leaf node
+                value = tree.value[node][0, 0]
+                n_samples = tree.n_node_samples[node]
+                rules.append({
+                    'depth': depth,
+                    'rule': f"{parent_rule}",
+                    'samples': n_samples,
+                    'value': value,
+                    'is_leaf': True
+                })
+            return rules
+        
+        rules = recurse(0, 0)
+        return rules
 
 class ConditionalForest:
     """Conditional Random Forest for IOP analysis."""
@@ -533,12 +602,12 @@ def main():
             # Create tabs for different results
             tabs = []
             if run_ctree:
-                tabs.append("C-Tree")
+                tabs.append("🌳 C-Tree")
             if run_cforest:
-                tabs.append("C-Forest")
+                tabs.append("🌲 C-Forest")
             if run_shapley:
-                tabs.append("Shapley")
-            tabs.append("Summary")
+                tabs.append("🎲 Shapley")
+            tabs.append("📊 Summary")
             
             tab_objects = st.tabs(tabs)
             tab_idx = 0
@@ -546,23 +615,57 @@ def main():
             # C-Tree Results
             if run_ctree:
                 with tab_objects[tab_idx]:
-                    st.subheader("C-Tree Results")
+                    st.markdown("### 🌳 Conditional Inference Tree Results")
                     
                     col1, col2, col3, col4 = st.columns(4)
                     with col1:
                         st.metric("Number of Types", ctree_results['n_types'])
                     with col2:
-                        st.metric("IOP (Gini)", f"{ctree_results['iop_gini_relative']:.1%}")
+                        iop_val = ctree_results['iop_gini_relative']
+                        delta_color = "normal" if iop_val < 0.3 else "inverse"
+                        st.metric("IOP (Gini)", f"{iop_val:.1%}", 
+                                delta=f"{'Low' if iop_val < 0.2 else 'Med' if iop_val < 0.4 else 'High'}",
+                                delta_color=delta_color)
                     with col3:
                         st.metric("Total Gini", f"{ctree_results['gini_total']:.4f}")
                     with col4:
                         st.metric("IOP Gini", f"{ctree_results['gini_smoothed']:.4f}")
                     
-                    # Tree Visualization
-                    with st.expander("🌳 View Decision Tree"):
-                        st.write("Decision tree showing how types are formed based on circumstances")
-                        tree_fig = ctree_results['model'].get_tree_plot(selected_circumstances)
-                        st.pyplot(tree_fig)
+                    # Tree Visualization - Better Options
+                    st.subheader("🌳 Decision Tree Structure")
+                    
+                    # Add visualization type selector
+                    viz_type = st.radio(
+                        "Select visualization type:",
+                        ["Text Rules", "Tree Diagram"],
+                        horizontal=True
+                    )
+                    
+                    if viz_type == "Text Rules":
+                        st.write("**Decision rules for each type:**")
+                        rules = ctree_results['model'].get_tree_rules(selected_circumstances)
+                        
+                        # Display only leaf nodes (types)
+                        leaf_rules = [r for r in rules if r.get('is_leaf', False)]
+                        
+                        for i, rule in enumerate(leaf_rules[:10]):  # Show max 10 types
+                            clean_rule = rule['rule'].replace("Root AND ", "")
+                            st.markdown(f"""
+                            <div class="tree-rule">
+                            <strong>Type {i+1}</strong><br>
+                            Rule: {clean_rule}<br>
+                            Mean Income: ${rule['value']:.2f}<br>
+                            Samples: {rule['samples']}
+                            </div>
+                            """, unsafe_allow_html=True)
+                            
+                        if len(leaf_rules) > 10:
+                            st.info(f"Showing first 10 types out of {len(leaf_rules)} total")
+                    
+                    else:
+                        with st.expander("View Full Tree Diagram"):
+                            tree_fig = ctree_results['model'].get_tree_plot(selected_circumstances)
+                            st.pyplot(tree_fig)
                     
                     # Type distribution
                     if ctree_results['n_types'] <= 20:
@@ -588,7 +691,7 @@ def main():
             # C-Forest Results
             if run_cforest:
                 with tab_objects[tab_idx]:
-                    st.subheader("C-Forest Results")
+                    st.markdown("### 🌲 Conditional Random Forest Results")
                     
                     col1, col2, col3, col4 = st.columns(4)
                     with col1:
@@ -623,7 +726,7 @@ def main():
             # Shapley Results
             if run_shapley:
                 with tab_objects[tab_idx]:
-                    st.subheader("Shapley Decomposition")
+                    st.markdown("### 🎲 Shapley Value Decomposition")
                     
                     # Create visualizations
                     shapley_df = pd.DataFrame({
@@ -668,7 +771,7 @@ def main():
             
             # Summary Tab
             with tab_objects[tab_idx]:
-                st.subheader("Summary of Results")
+                st.markdown("### 📊 Summary of All Results")
                 
                 summary_data = []
                 

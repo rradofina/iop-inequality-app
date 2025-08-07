@@ -763,55 +763,56 @@ def generate_ai_insights(results, api_key, model_id="openai/gpt-oss-120b"):
         
         # Format Shapley results for better readability
         shapley_text = ""
+        shapley_list = []
         if shapley_results and shapley_results.get('relative'):
             sorted_shapley = sorted(shapley_results['relative'].items(), key=lambda x: x[1], reverse=True)
-            shapley_text = "\n".join([f"- {circ}: {val:.1f}%" for circ, val in sorted_shapley])
+            for circ, val in sorted_shapley:
+                shapley_text += f"- {circ}: {val:.1f}%\n"
+                shapley_list.append(f"{circ} ({val:.1f}%)")
         
         context = f"""
-        You are an expert economist advising National Statistical Offices and policymakers. 
-        Analyze these Inequality of Opportunity (IOP) results and provide insights that are accessible to both technical and non-technical audiences.
+        You are an expert economist preparing a report for National Statistical Offices, ministries, and development partners.
         
-        BACKGROUND:
-        Inequality of Opportunity measures how much of total inequality is due to circumstances beyond individual control (like birthplace, parental education, gender) versus personal effort and choices.
+        TASK: Generate a "Key Findings" summary based on the IOP Inequality Analysis results below.
         
-        ANALYSIS RESULTS:
-        
-        IOP Share of Total Inequality:
-        - C-Tree Method: {ctree_results.get('iop_gini_relative', 0):.1%} (Gini), {ctree_results.get('iop_mld_relative', 0):.1%} (MLD)
-        - C-Forest Method: {cforest_results.get('iop_gini_relative', 0):.1%} (Gini), {cforest_results.get('iop_mld_relative', 0):.1%} (MLD)
-        - Population Types Identified: {ctree_results.get('n_types', 'N/A')}
+        DATA FROM ANALYSIS:
+        - IOP (Gini) from C-Tree: {ctree_results.get('iop_gini_relative', 0):.1%}
+        - IOP (MLD) from C-Tree: {ctree_results.get('iop_mld_relative', 0):.1%}
         - Total Inequality (Gini): {ctree_results.get('gini_total', 0):.4f}
+        - Population Types Identified: {ctree_results.get('n_types', 'N/A')}
+        - IOP (Gini) from C-Forest: {cforest_results.get('iop_gini_relative', 0):.1%}
+        - IOP (MLD) from C-Forest: {cforest_results.get('iop_mld_relative', 0):.1%}
         
-        Circumstance Contributions (Shapley Decomposition):
+        Shapley Decomposition (Circumstance Contributions):
         {shapley_text if shapley_text else 'Not performed'}
         
-        Please provide a comprehensive analysis with these sections:
+        INSTRUCTIONS:
+        1. Create a markdown table with three columns: Metric | Value | Plain-Language Explanation
+        2. Include all key metrics from the analysis
+        3. For each metric, provide a clear explanation that a non-technical policymaker would understand
+        4. After the table, provide:
+           - A simple 2-3 sentence explanation of what the IOP percentage means in practical terms
+           - Comparative context (e.g., "This IOP level of {ctree_results.get('iop_gini_relative', 0):.0%} is [high/moderate/low] compared to countries at similar development stages, where typical values range from X% to Y%")
+           - Key insight about which circumstances matter most and why
         
-        ## Key Findings
+        FORMAT YOUR RESPONSE AS:
         
-        ### Simple Explanation of IOP Percentages
-        Explain in layman terms what it means that {ctree_results.get('iop_gini_relative', 0):.1%} of inequality is due to circumstances. 
-        Is this high or low compared to typical findings? What does this imply about fairness in this society?
+        ## Key Findings Table
         
-        ### Most Important Circumstances and Why
-        Based on the Shapley decomposition, identify the top 2-3 circumstances and explain:
-        - Why each circumstance matters (e.g., Birth Area might reflect urban-rural divides, access to infrastructure)
-        - The transmission mechanisms (how does father's education affect opportunities?)
-        - Interconnections between circumstances
+        | Metric | Value | Plain-Language Explanation |
+        |--------|-------|---------------------------|
+        | [metric rows] | ... | ... |
         
-        ### Policy Implications
-        Provide specific, actionable recommendations:
-        - Which circumstances should be prioritized for intervention?
-        - What types of policies could address each key circumstance?
-        - Short-term vs long-term strategies
+        ### What This Means
+        [2-3 sentence simple explanation]
         
-        ### Notable Patterns and Concerns
-        - Any surprising findings?
-        - Comparison with international benchmarks if relevant
-        - Data limitations or areas needing further investigation
+        ### Comparative Context
+        [How this compares to similar countries]
         
-        Write in a professional but accessible style suitable for government officials and development partners.
-        Focus on actionable insights rather than technical details.
+        ### Most Important Finding
+        [Which circumstances dominate and their practical implications]
+        
+        Be precise with numbers but explain them in accessible terms.
         """
         
         # Use the selected model or default to GPT-OSS-120B
@@ -847,23 +848,55 @@ def generate_policy_recommendations(results, api_key, model_id="openai/gpt-oss-1
         return None
     
     try:
+        ctree_results = results.get('ctree', {})
         shapley_results = results.get('shapley', {})
         relative_contributions = shapley_results.get('relative', {})
         
-        # Find top contributors
+        # Find top contributors with detailed formatting
+        top_circumstances_text = ""
         if relative_contributions:
             sorted_circumstances = sorted(relative_contributions.items(), key=lambda x: x[1], reverse=True)
-            top_circumstances = sorted_circumstances[:2]
-        else:
-            top_circumstances = []
+            for i, (circ, val) in enumerate(sorted_circumstances[:3], 1):
+                top_circumstances_text += f"{i}. {circ}: {val:.1f}% of inequality\n"
         
         context = f"""
-        Based on the inequality of opportunity analysis, the top contributing circumstances are:
-        {top_circumstances}
+        You are a policy advisor preparing recommendations for government ministries and development partners.
         
-        Generate 3-5 specific, actionable policy recommendations to reduce inequality of opportunity.
-        Focus on interventions targeting these circumstances.
-        Be specific and practical.
+        TASK: Generate actionable policy recommendations based on the IOP analysis findings.
+        
+        KEY FINDINGS FROM ANALYSIS:
+        - Total IOP (share of inequality due to circumstances): {ctree_results.get('iop_gini_relative', 0):.1%}
+        - Number of population types identified: {ctree_results.get('n_types', 'N/A')}
+        
+        TOP CIRCUMSTANCES CONTRIBUTING TO INEQUALITY:
+        {top_circumstances_text if top_circumstances_text else 'No Shapley decomposition available'}
+        
+        INSTRUCTIONS:
+        Based on the dominance of these circumstances (especially Birth Area and Father's/Mother's Education if present), generate concrete, implementable policy recommendations.
+        
+        Structure your response as follows:
+        
+        1. Start with a brief introductory paragraph (2-3 sentences) summarizing why these interventions are needed
+        
+        2. Then provide 3-4 policy recommendations in this table format:
+        
+        | Intervention | Why (Rationale) | How (Implementation Steps) | Expected Impact | Time Horizon | Cost Level |
+        |--------------|-----------------|---------------------------|-----------------|--------------|------------|
+        | [Name] | [Link to data] | [Step-by-step guide] | [Outcomes] | [Short/Medium/Long] | [Low/Medium/High] |
+        
+        3. End with a "Priority Sequencing" section recommending which intervention to implement first and why
+        
+        GUIDELINES FOR RECOMMENDATIONS:
+        - Make interventions specific and actionable (not generic)
+        - Link each recommendation directly to the data findings
+        - Consider scalability for different resource settings
+        - Include both immediate and long-term interventions
+        - Focus on evidence-based approaches that have worked in similar contexts
+        - For Birth Area: Consider infrastructure, connectivity, service delivery
+        - For Parental Education: Consider adult education, conditional transfers, early childhood programs
+        - For Gender: Consider targeted programs, legal reforms, awareness campaigns
+        
+        Be practical and consider implementation feasibility in developing country contexts.
         """
         
         # Use same model for consistency

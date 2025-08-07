@@ -152,12 +152,130 @@ def weighted_mean(values, weights=None):
     return np.average(values, weights=weights)
 
 # ============================================================================
+# CPI-PPP ADJUSTMENT FUNCTIONS
+# ============================================================================
+
+@st.cache_data
+def load_and_apply_ppp_adjustment(df, cpi_ppp_file):
+    """
+    Apply CPI-PPP adjustment to income values.
+    
+    Parameters:
+    -----------
+    df : pd.DataFrame
+        Data with 'income', 'cntry', and 'year' columns
+    cpi_ppp_file : UploadedFile
+        Excel file with CPI values and PPP rates
+    
+    Returns:
+    --------
+    df : pd.DataFrame
+        Data with adjusted income
+    ppp_info : dict or None
+        Information about the adjustment applied
+    """
+    try:
+        # Load CPI-PPP reference file
+        cpi_ppp_df = pd.read_excel(cpi_ppp_file)
+        
+        # Check if data has required columns
+        if 'cntry' not in df.columns or 'year' not in df.columns:
+            st.warning("⚠️ Data missing 'cntry' or 'year' columns for PPP adjustment")
+            return df, None
+        
+        # Extract country and year from data
+        country_code = df['cntry'].iloc[0] if isinstance(df['cntry'].iloc[0], str) else str(df['cntry'].iloc[0])
+        year = int(df['year'].iloc[0])
+        
+        # Handle multiple countries warning
+        if df['cntry'].nunique() > 1:
+            st.warning(f"⚠️ Multiple countries detected. Using PPP adjustment for: {country_code}")
+        
+        # Find country row (column B is index 1)
+        country_mask = cpi_ppp_df.iloc[:, 1] == country_code
+        if not country_mask.any():
+            st.error(f"❌ Country code '{country_code}' not found in CPI-PPP file")
+            return df, None
+        
+        country_row = cpi_ppp_df[country_mask].iloc[0]
+        
+        # Get CPI value for the year
+        # Years start from column D (index 3) for 1960
+        # So year column index = year - 1960 + 3
+        year_col_idx = year - 1960 + 3
+        
+        # Check if year is in valid range
+        if year < 1960 or year > 2022:
+            st.error(f"❌ Year {year} is outside the CPI data range (1960-2022)")
+            return df, None
+        
+        try:
+            cpi_value = float(country_row.iloc[year_col_idx])
+        except:
+            st.error(f"❌ Could not find CPI value for year {year}")
+            return df, None
+        
+        # Get PPP value (column BO = index 66)
+        try:
+            ppp_value = float(country_row.iloc[66])
+        except:
+            st.error(f"❌ Could not find PPP value in column BO")
+            return df, None
+        
+        # Calculate adjustment factor (same formula as R)
+        cpi_ppp_factor = ppp_value * cpi_value / 100
+        
+        # Store original income and apply adjustment
+        df['income_local'] = df['income'].copy()
+        df['income'] = df['income'] / cpi_ppp_factor
+        
+        # Update log income if it exists
+        if 'loginc' in df.columns:
+            df['loginc'] = np.log(df['income'] + 1)
+        
+        # Get country name from column C (index 2)
+        country_name = country_row.iloc[2]
+        
+        ppp_info = {
+            'country_code': country_code,
+            'country_name': country_name,
+            'year': year,
+            'cpi': cpi_value,
+            'ppp': ppp_value,
+            'factor': cpi_ppp_factor
+        }
+        
+        return df, ppp_info
+        
+    except Exception as e:
+        st.error(f"❌ Error processing CPI-PPP file: {str(e)}")
+        return df, None
+
+# ============================================================================
 # DATA PREPARATION
 # ============================================================================
 
 @st.cache_data
-def prepare_data(df, apply_age_adjustment=True):
-    """Prepare and clean data for IOP analysis."""
+def prepare_data(df, apply_age_adjustment=True, cpi_ppp_file=None, apply_ppp=False):
+    """
+    Prepare and clean data for IOP analysis.
+    
+    Parameters:
+    -----------
+    df : pd.DataFrame
+        Raw data
+    apply_age_adjustment : bool
+        Whether to apply age adjustment
+    cpi_ppp_file : UploadedFile or None
+        CPI-PPP reference file for PPP adjustment
+    apply_ppp : bool
+        Whether to apply PPP adjustment
+    """
+    
+    # Apply PPP adjustment FIRST (before other transformations)
+    ppp_info = None
+    if apply_ppp and cpi_ppp_file is not None:
+        df, ppp_info = load_and_apply_ppp_adjustment(df, cpi_ppp_file)
     
     # Handle column naming
     column_mapping = {
@@ -226,7 +344,7 @@ def prepare_data(df, apply_age_adjustment=True):
             potential_circumstances.append(col)
             df[col] = pd.Categorical(df[col])
     
-    return df, potential_circumstances
+    return df, potential_circumstances, ppp_info
 
 # ============================================================================
 # IOP ANALYSIS FUNCTIONS
@@ -607,6 +725,31 @@ def run_cforest_analysis(data, circumstances, outcome='income', weights='weights
 # AI INSIGHTS FUNCTIONS
 # ============================================================================
 
+def test_ai_connection(api_key, model_id="openai/gpt-oss-120b"):
+    """Test AI connection with a simple query."""
+    if not GROQ_AVAILABLE or not api_key:
+        return False
+    
+    try:
+        client = Groq(api_key=api_key)
+        
+        # Simple test query
+        completion = client.chat.completions.create(
+            model=model_id,
+            messages=[
+                {
+                    "role": "user",
+                    "content": "Say 'Connection successful' in 3 words or less."
+                }
+            ],
+            temperature=0.5,
+            max_tokens=10
+        )
+        
+        return True
+    except Exception as e:
+        return False
+
 def generate_ai_insights(results, api_key, model_id="openai/gpt-oss-120b"):
     """Generate AI-powered interpretation of IOP results."""
     if not GROQ_AVAILABLE or not api_key:
@@ -653,21 +796,21 @@ def generate_ai_insights(results, api_key, model_id="openai/gpt-oss-120b"):
         
         completion = client.chat.completions.create(
             model=model_id,  # Use selected model
-                messages=[
-                    {
-                        "role": "system", 
-                        "content": "You are an expert economist specializing in inequality and social policy. Provide clear, actionable insights."
-                    },
-                    {
-                        "role": "user",
-                        "content": context
-                    }
-                ],
-                temperature=0.7,
-                max_tokens=600
-            )
-            
-            return completion.choices[0].message.content
+            messages=[
+                {
+                    "role": "system", 
+                    "content": "You are an expert economist specializing in inequality and social policy. Provide clear, actionable insights."
+                },
+                {
+                    "role": "user",
+                    "content": context
+                }
+            ],
+            temperature=0.7,
+            max_tokens=600
+        )
+        
+        return completion.choices[0].message.content
             
     except Exception as e:
         return f"Error generating insights: {str(e)}"
@@ -818,6 +961,29 @@ def main():
         st.header("⚙️ Configuration")
         
         apply_age_adjustment = st.checkbox("Apply age adjustment", value=True)
+        
+        st.divider()
+        
+        # CPI-PPP Adjustment Section
+        st.header("💱 PPP Adjustment")
+        
+        cpi_ppp_file = st.file_uploader(
+            "Upload CPI-PPP Reference File",
+            type=['xlsx', 'xls'],
+            key="cpi_ppp_upload",
+            help="Excel file with CPI values (1960-2022, base year 2017=100) and PPP rates in column BO"
+        )
+        
+        if cpi_ppp_file:
+            st.success("✅ CPI-PPP file loaded")
+            apply_ppp_adjustment = st.checkbox(
+                "Apply PPP adjustment to income", 
+                value=True,
+                help="Converts local currency to international dollars (PPP-adjusted, 2017 base)"
+            )
+        else:
+            st.info("📁 Optional: Upload CPI-PPP file for international comparisons")
+            apply_ppp_adjustment = False
         
         st.divider()
         
@@ -980,28 +1146,43 @@ def main():
                     st.subheader("🤖 Select AI Model")
                     
                     model_options = {
-                        "GPT-OSS-120B (OpenAI - Best)": "openai/gpt-oss-120b",
-                        "Llama 3.3 70B (Fast)": "llama-3.3-70b-versatile",
-                        "Mixtral 8x7B (Light)": "mixtral-8x7b-32768"
+                        "GPT-OSS-120B (Primary - Best)": "openai/gpt-oss-120b",
+                        "GPT-OSS-20B (Secondary - Faster)": "openai/gpt-oss-20b",
+                        "Llama 3.3 70B (Alternative)": "llama-3.3-70b-versatile",
+                        "Mixtral 8x7B (Lightweight)": "mixtral-8x7b-32768"
                     }
                     
                     selected_model_name = st.selectbox(
                         "Choose Model",
                         options=list(model_options.keys()),
                         index=0,
-                        help="GPT-OSS-120B: Best reasoning (500+ t/s)\nLlama 3.3: Fast general purpose\nMixtral: Lightweight and quick"
+                        help="GPT-OSS-120B: Primary model with best reasoning\nGPT-OSS-20B: Secondary model, faster but still excellent\nLlama 3.3: Alternative fast model\nMixtral: Lightweight and quick"
                     )
                     
                     st.session_state['ai_model'] = model_options[selected_model_name]
                     st.session_state['ai_model_name'] = selected_model_name
                     
                     # Show model info
-                    if "GPT-OSS" in selected_model_name:
-                        st.info("🎆 Using OpenAI's latest open model with strong reasoning capabilities")
+                    if "GPT-OSS-120B" in selected_model_name:
+                        st.info("🎆 Primary Model: OpenAI's most powerful open model with superior reasoning")
+                    elif "GPT-OSS-20B" in selected_model_name:
+                        st.info("⚡ Secondary Model: Faster OpenAI model with excellent quality-speed balance")
                     elif "Llama" in selected_model_name:
-                        st.info("🦙 Using Meta's Llama 3.3 with balanced performance")
+                        st.info("🦙 Alternative: Meta's Llama 3.3 with balanced performance")
                     else:
-                        st.info("⚡ Using Mixtral for fast, efficient analysis")
+                        st.info("🚀 Lightweight: Mixtral for fast, efficient analysis")
+                    
+                    # Test AI Connection Button
+                    st.divider()
+                    if st.button("🧪 Test AI Connection", use_container_width=True, key="test_ai_button"):
+                        with st.spinner(f"Testing connection with {selected_model_name}..."):
+                            if test_ai_connection(api_key, st.session_state['ai_model']):
+                                st.success("✅ AI connection successful! Ready to analyze results.")
+                                st.balloons()
+                            else:
+                                st.error("❌ Connection failed. Please check your API key or try a different model.")
+                                st.info("Tip: Make sure your API key is valid and has sufficient credits.")
+                    
                 else:
                     st.warning("⚠️ Enter API key to enable AI insights")
                 
@@ -1045,7 +1226,31 @@ def main():
         
         # Prepare data
         with st.spinner("Preparing data..."):
-            df_clean, potential_circumstances = prepare_data(df, apply_age_adjustment)
+            df_clean, potential_circumstances, ppp_info = prepare_data(
+                df, 
+                apply_age_adjustment,
+                cpi_ppp_file=cpi_ppp_file if apply_ppp_adjustment else None,
+                apply_ppp=apply_ppp_adjustment
+            )
+        
+        # Display PPP adjustment info if applied
+        if ppp_info:
+            st.success(f"✅ PPP Adjustment Applied: {ppp_info['country_name']} ({ppp_info['country_code']}) - Year {ppp_info['year']}")
+            
+            # Show PPP adjustment details
+            with st.expander("💱 PPP Adjustment Details", expanded=False):
+                col1, col2, col3, col4 = st.columns(4)
+                with col1:
+                    st.metric("Country", f"{ppp_info['country_code']}")
+                with col2:
+                    st.metric("Year", ppp_info['year'])
+                with col3:
+                    st.metric("CPI (2017=100)", f"{ppp_info['cpi']:.1f}")
+                with col4:
+                    st.metric("PPP Factor", f"{ppp_info['factor']:.3f}")
+                
+                st.info(f"💡 Income values have been converted to international dollars (PPP-adjusted, 2017 base year). "
+                       f"Original local currency values were divided by {ppp_info['factor']:.3f}")
         
         # Data overview
         col1, col2, col3 = st.columns(3)

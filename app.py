@@ -22,6 +22,13 @@ import os
 
 warnings.filterwarnings('ignore')
 
+# Try to import Groq for AI insights
+try:
+    from groq import Groq
+    GROQ_AVAILABLE = True
+except ImportError:
+    GROQ_AVAILABLE = False
+
 # Page configuration
 st.set_page_config(
     page_title="IOP Analysis Tool",
@@ -596,6 +603,120 @@ def run_cforest_analysis(data, circumstances, outcome='income', weights='weights
         'feature_importance': cforest.get_feature_importance(circumstances)
     }
 
+# ============================================================================
+# AI INSIGHTS FUNCTIONS
+# ============================================================================
+
+def generate_ai_insights(results, api_key, provider="groq"):
+    """Generate AI-powered interpretation of IOP results."""
+    if not GROQ_AVAILABLE or not api_key:
+        return None
+    
+    try:
+        # Prepare context with results
+        ctree_results = results.get('ctree', {})
+        cforest_results = results.get('cforest', {})
+        shapley_results = results.get('shapley', {})
+        
+        context = f"""
+        You are an expert in inequality economics. Please provide a clear, policy-oriented interpretation of these Inequality of Opportunity (IOP) analysis results.
+        
+        RESULTS SUMMARY:
+        
+        C-Tree Analysis:
+        - IOP (Gini): {ctree_results.get('iop_gini_relative', 0):.1%}
+        - IOP (MLD): {ctree_results.get('iop_mld_relative', 0):.1%}
+        - Number of Types: {ctree_results.get('n_types', 'N/A')}
+        - Total Inequality (Gini): {ctree_results.get('gini_total', 0):.4f}
+        
+        C-Forest Analysis:
+        - IOP (Gini): {cforest_results.get('iop_gini_relative', 0):.1%}
+        - IOP (MLD): {cforest_results.get('iop_mld_relative', 0):.1%}
+        
+        Shapley Decomposition (relative contributions):
+        {dict(shapley_results.get('relative', {})) if shapley_results else 'Not performed'}
+        
+        Please provide:
+        1. A simple explanation of what these IOP percentages mean
+        2. Which circumstances are most important and why
+        3. What this implies for policy interventions
+        4. Any notable patterns or concerns
+        
+        Keep the explanation concise and accessible to policymakers.
+        """
+        
+        if provider == "Groq (Free - Recommended)":
+            client = Groq(api_key=api_key)
+            
+            completion = client.chat.completions.create(
+                model="llama3-70b-8192",  # Fast and good quality
+                messages=[
+                    {
+                        "role": "system", 
+                        "content": "You are an expert economist specializing in inequality and social policy. Provide clear, actionable insights."
+                    },
+                    {
+                        "role": "user",
+                        "content": context
+                    }
+                ],
+                temperature=0.7,
+                max_tokens=600
+            )
+            
+            return completion.choices[0].message.content
+            
+    except Exception as e:
+        return f"Error generating insights: {str(e)}"
+
+def generate_policy_recommendations(results, api_key):
+    """Generate specific policy recommendations based on results."""
+    if not GROQ_AVAILABLE or not api_key:
+        return None
+    
+    try:
+        shapley_results = results.get('shapley', {})
+        relative_contributions = shapley_results.get('relative', {})
+        
+        # Find top contributors
+        if relative_contributions:
+            sorted_circumstances = sorted(relative_contributions.items(), key=lambda x: x[1], reverse=True)
+            top_circumstances = sorted_circumstances[:2]
+        else:
+            top_circumstances = []
+        
+        context = f"""
+        Based on the inequality of opportunity analysis, the top contributing circumstances are:
+        {top_circumstances}
+        
+        Generate 3-5 specific, actionable policy recommendations to reduce inequality of opportunity.
+        Focus on interventions targeting these circumstances.
+        Be specific and practical.
+        """
+        
+        client = Groq(api_key=api_key)
+        
+        completion = client.chat.completions.create(
+            model="mixtral-8x7b-32768",  # Good for structured recommendations
+            messages=[
+                {
+                    "role": "system",
+                    "content": "You are a policy advisor specializing in reducing inequality. Provide specific, implementable recommendations."
+                },
+                {
+                    "role": "user",
+                    "content": context
+                }
+            ],
+            temperature=0.6,
+            max_tokens=400
+        )
+        
+        return completion.choices[0].message.content
+        
+    except Exception as e:
+        return f"Error generating recommendations: {str(e)}"
+
 def run_shapley_decomposition(data, circumstances, outcome='income', weights='weights', n_permutations=100):
     """Run fast Shapley decomposition."""
     
@@ -826,6 +947,45 @@ def main():
                 'normalize': normalize_output,
                 'font_size': tree_font_size
             }
+        
+        st.divider()
+        
+        # AI Insights Configuration
+        with st.expander("🤖 AI Insights (Optional)", expanded=False):
+            st.markdown("### AI-Powered Result Interpretation")
+            
+            if GROQ_AVAILABLE:
+                st.info("Get a free API key from [groq.com](https://console.groq.com/keys) for AI-powered insights.")
+                
+                ai_provider = st.selectbox(
+                    "Select AI Provider",
+                    ["None", "Groq (Free - Recommended)"],
+                    help="Groq offers fast, free AI inference with Llama and Mixtral models."
+                )
+                
+                if ai_provider != "None":
+                    api_key = st.text_input(
+                        "API Key", 
+                        type="password",
+                        help="Your API key is never stored and only used for this session."
+                    )
+                    
+                    if api_key:
+                        st.success("✅ API key configured")
+                        st.session_state['ai_api_key'] = api_key
+                        st.session_state['ai_provider'] = ai_provider
+                    
+                    st.markdown("""
+                    **AI Insights will provide:**
+                    - Plain language explanation of results
+                    - Policy implications
+                    - Comparison between methods
+                    - Key findings summary
+                    """)
+            else:
+                st.warning("Install groq package to enable AI insights: `pip install groq`")
+                st.session_state['ai_api_key'] = None
+                st.session_state['ai_provider'] = None
     
     # Main content
     if uploaded_file is not None or use_sample:
@@ -1236,6 +1396,63 @@ def main():
                 if summary_data:
                     summary_df = pd.DataFrame(summary_data)
                     st.dataframe(summary_df, use_container_width=True)
+                
+                # AI Insights Section
+                st.divider()
+                
+                api_key = st.session_state.get('ai_api_key')
+                ai_provider = st.session_state.get('ai_provider')
+                
+                if api_key and ai_provider and ai_provider != "None":
+                    st.subheader("🤖 AI-Powered Insights")
+                    
+                    col1, col2 = st.columns([3, 1])
+                    with col1:
+                        st.info("💡 Generate AI-powered interpretation of your results")
+                    with col2:
+                        generate_insights_btn = st.button("🤖 Generate Insights", type="primary", use_container_width=True)
+                    
+                    if generate_insights_btn:
+                        with st.spinner("Generating AI insights..."):
+                            insights = generate_ai_insights(results, api_key, ai_provider)
+                            
+                            if insights and not insights.startswith("Error"):
+                                st.success("✅ AI Insights Generated!")
+                                
+                                # Main insights
+                                with st.container():
+                                    st.markdown("#### 📊 Key Findings")
+                                    st.markdown(insights)
+                                
+                                # Policy recommendations
+                                with st.expander("🎯 Policy Recommendations", expanded=False):
+                                    with st.spinner("Generating policy recommendations..."):
+                                        recommendations = generate_policy_recommendations(results, api_key)
+                                        if recommendations and not recommendations.startswith("Error"):
+                                            st.markdown(recommendations)
+                                        else:
+                                            st.warning("Could not generate policy recommendations")
+                                
+                                # Save insights to session
+                                st.session_state['ai_insights'] = insights
+                                st.session_state['ai_recommendations'] = recommendations
+                                
+                            elif insights and insights.startswith("Error"):
+                                st.error(insights)
+                            else:
+                                st.warning("No insights generated. Please check your API key.")
+                    
+                    # Display saved insights if they exist
+                    elif 'ai_insights' in st.session_state:
+                        st.markdown("#### 📊 Previous AI Insights")
+                        st.markdown(st.session_state['ai_insights'])
+                        
+                        if 'ai_recommendations' in st.session_state:
+                            with st.expander("🎯 Policy Recommendations", expanded=False):
+                                st.markdown(st.session_state['ai_recommendations'])
+                
+                elif not api_key:
+                    st.info("🤖 Configure AI Insights in the sidebar to get AI-powered interpretation of your results.")
                 
                 # Download results
                 st.subheader("Download Results")

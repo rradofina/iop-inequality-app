@@ -8,9 +8,10 @@ import pandas as pd
 import numpy as np
 import plotly.express as px
 import plotly.graph_objects as go
-from sklearn.tree import DecisionTreeRegressor
+from sklearn.tree import DecisionTreeRegressor, plot_tree
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.model_selection import KFold, GridSearchCV
+import matplotlib.pyplot as plt
 import warnings
 from itertools import combinations
 from math import factorial
@@ -217,6 +218,13 @@ class ConditionalTree:
             if X_encoded[col].dtype == 'category':
                 X_encoded[col] = X_encoded[col].cat.codes
         return self.tree.apply(X_encoded.values)
+    
+    def get_tree_plot(self, feature_names):
+        """Generate tree visualization."""
+        fig, ax = plt.subplots(figsize=(20, 10))
+        plot_tree(self.tree, feature_names=feature_names, 
+                 filled=True, rounded=True, ax=ax, fontsize=10)
+        return fig
 
 class ConditionalForest:
     """Conditional Random Forest for IOP analysis."""
@@ -251,6 +259,14 @@ class ConditionalForest:
             if X_encoded[col].dtype == 'category':
                 X_encoded[col] = X_encoded[col].cat.codes
         return self.forest.predict(X_encoded.values)
+    
+    def get_feature_importance(self, feature_names):
+        """Get feature importance scores."""
+        importance = self.forest.feature_importances_
+        return pd.DataFrame({
+            'Feature': feature_names,
+            'Importance': importance
+        }).sort_values('Importance', ascending=False)
 
 def run_ctree_analysis(data, circumstances, outcome='income', weights='weights'):
     """Run C-Tree analysis."""
@@ -288,7 +304,9 @@ def run_ctree_analysis(data, circumstances, outcome='income', weights='weights')
         'mld_smoothed': mld_smoothed,
         'iop_gini_relative': gini_smoothed / gini_total if gini_total > 0 else 0,
         'iop_mld_relative': mld_smoothed / mld_total if mld_total > 0 else 0,
-        'type_means': type_means.to_dict()
+        'type_means': type_means.to_dict(),
+        'model': ctree,
+        'data_with_types': data
     }
 
 def run_cforest_analysis(data, circumstances, outcome='income', weights='weights'):
@@ -317,7 +335,9 @@ def run_cforest_analysis(data, circumstances, outcome='income', weights='weights
         'gini_smoothed': gini_smoothed,
         'mld_smoothed': mld_smoothed,
         'iop_gini_relative': gini_smoothed / gini_total if gini_total > 0 else 0,
-        'iop_mld_relative': mld_smoothed / mld_total if mld_total > 0 else 0
+        'iop_mld_relative': mld_smoothed / mld_total if mld_total > 0 else 0,
+        'model': cforest,
+        'feature_importance': cforest.get_feature_importance(circumstances)
     }
 
 def run_shapley_decomposition(data, circumstances, outcome='income', weights='weights', n_permutations=100):
@@ -538,6 +558,12 @@ def main():
                     with col4:
                         st.metric("IOP Gini", f"{ctree_results['gini_smoothed']:.4f}")
                     
+                    # Tree Visualization
+                    with st.expander("🌳 View Decision Tree"):
+                        st.write("Decision tree showing how types are formed based on circumstances")
+                        tree_fig = ctree_results['model'].get_tree_plot(selected_circumstances)
+                        st.pyplot(tree_fig)
+                    
                     # Type distribution
                     if ctree_results['n_types'] <= 20:
                         st.subheader("Type Mean Incomes")
@@ -547,6 +573,15 @@ def main():
                         })
                         fig = px.bar(type_df, x='Type', y='Mean Income', title="Mean Income by Type")
                         st.plotly_chart(fig, use_container_width=True)
+                        
+                        # Income distribution by type
+                        if 'data_with_types' in ctree_results:
+                            st.subheader("Income Distribution by Type")
+                            data_types = ctree_results['data_with_types']
+                            fig_box = px.box(data_types, x='types', y='income', 
+                                            title="Income Distribution Across Types",
+                                            labels={'types': 'Type', 'income': 'Income'})
+                            st.plotly_chart(fig_box, use_container_width=True)
                 
                 tab_idx += 1
             
@@ -564,6 +599,24 @@ def main():
                         st.metric("Total Gini", f"{cforest_results['gini_total']:.4f}")
                     with col4:
                         st.metric("Total MLD", f"{cforest_results['mld_total']:.4f}")
+                    
+                    # Feature Importance
+                    if 'feature_importance' in cforest_results:
+                        st.subheader("📊 Feature Importance")
+                        importance_df = cforest_results['feature_importance']
+                        
+                        # Bar chart
+                        fig_importance = px.bar(importance_df, x='Importance', y='Feature', 
+                                               orientation='h',
+                                               title="Circumstance Importance in Random Forest",
+                                               color='Importance',
+                                               color_continuous_scale='Viridis')
+                        fig_importance.update_layout(height=400)
+                        st.plotly_chart(fig_importance, use_container_width=True)
+                        
+                        # Table
+                        st.dataframe(importance_df.style.format({'Importance': '{:.4f}'}), 
+                                   use_container_width=True)
                 
                 tab_idx += 1
             

@@ -167,6 +167,11 @@ This tool democratizes IOP analysis for NSOs across Asia-Pacific, enabling evide
 - Added Test AI Connection button for immediate API validation
 - Improved model hierarchy labeling (Primary/Secondary/Alternative)
 - Enhanced PPP adjustment UI with detailed metrics display
+- Increased AI token limits to 2500 for complete responses
+- Fixed HTML tags appearing in AI outputs with markdown-only instructions
+- Updated all prompts to use circumstance-effort framework terminology
+- Added sample CPI-PPP file option for easy testing
+- Improved policy-friendly language throughout AI insights
 
 ---
 *This tool represents a significant step forward in making advanced inequality analysis accessible to statistical offices throughout the Asia-Pacific region, supporting ADB's mission of promoting inclusive economic growth.*

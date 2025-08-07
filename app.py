@@ -33,6 +33,19 @@ st.set_page_config(
 # Custom CSS
 st.markdown("""
 <style>
+    /* Increase sidebar width */
+    section[data-testid="stSidebar"] {
+        width: 400px !important;
+    }
+    section[data-testid="stSidebar"] > div {
+        width: 400px !important;
+    }
+    
+    /* Reduce spacing after sliders */
+    div[data-testid="stHorizontalBlock"] {
+        gap: 0.5rem;
+    }
+    
     .main-header {
         font-size: 2.5rem;
         color: #1f77b4;
@@ -692,10 +705,8 @@ def main():
         else:
             n_permutations = 100
         
-        st.divider()
-        
-        # Advanced Settings
-        with st.expander("⚙️ Advanced Settings"):
+        # Advanced Settings (expanded by default)
+        with st.expander("⚙️ Advanced Settings", expanded=True):
             st.markdown("### Parameter Configuration")
             st.info("These parameters match the R implementation and allow fine-tuning of the analysis.")
             

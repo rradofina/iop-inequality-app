@@ -1855,6 +1855,59 @@ def main():
                     summary_df = pd.DataFrame(summary_data)
                     st.dataframe(summary_df, use_container_width=True)
                 
+                # Shapley Decomposition in Summary
+                if 'shapley' in results:
+                    st.divider()
+                    st.markdown("### 🎲 Circumstance Contributions (Shapley Decomposition)")
+                    st.markdown("*Shows how much each circumstance contributes to total inequality*")
+                    
+                    shapley_values = results['shapley']['values']
+                    relative_shapley = results['shapley']['relative']
+                    
+                    # Sort by contribution (highest first)
+                    sorted_shapley = dict(sorted(relative_shapley.items(), key=lambda x: x[1], reverse=True))
+                    
+                    col1, col2 = st.columns([2, 3])
+                    
+                    with col1:
+                        # Table with sorted values
+                        shapley_summary_df = pd.DataFrame({
+                            'Circumstance': list(sorted_shapley.keys()),
+                            'Contribution (%)': [f"{v:.1f}%" for v in sorted_shapley.values()]
+                        })
+                        st.dataframe(shapley_summary_df, use_container_width=True, hide_index=True)
+                        
+                        # Highlight the most important circumstance
+                        top_circumstance = list(sorted_shapley.keys())[0]
+                        top_value = list(sorted_shapley.values())[0]
+                        st.info(f"📌 **{top_circumstance}** is the most important circumstance, contributing **{top_value:.1f}%** to inequality")
+                    
+                    with col2:
+                        # Horizontal bar chart for better readability
+                        import plotly.graph_objects as go
+                        
+                        fig_shapley = go.Figure(go.Bar(
+                            x=list(sorted_shapley.values()),
+                            y=list(sorted_shapley.keys()),
+                            orientation='h',
+                            marker_color='steelblue',
+                            text=[f"{v:.1f}%" for v in sorted_shapley.values()],
+                            textposition='auto',
+                        ))
+                        
+                        fig_shapley.update_layout(
+                            title="Contribution to Inequality (%)",
+                            xaxis_title="Percentage Contribution",
+                            yaxis_title="",
+                            height=300,
+                            margin=dict(l=0, r=0, t=40, b=40),
+                            title_font_size=18,
+                            xaxis=dict(title_font_size=14, tickfont_size=12),
+                            yaxis=dict(tickfont_size=14)
+                        )
+                        
+                        st.plotly_chart(fig_shapley, use_container_width=True)
+                
                 # AI Insights Section (Automatic if connected)
                 st.divider()
                 st.subheader("🤖 AI-Powered Insights")

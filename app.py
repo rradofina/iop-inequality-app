@@ -951,39 +951,35 @@ def main():
         st.divider()
         
         # AI Insights Configuration
-        with st.expander("🤖 AI Insights (Optional)", expanded=False):
+        with st.expander("🤖 AI Insights Configuration", expanded=True):
             st.markdown("### AI-Powered Result Interpretation")
             
             if GROQ_AVAILABLE:
-                st.info("Get a free API key from [groq.com](https://console.groq.com/keys) for AI-powered insights.")
+                st.info("Enter your Groq API key for AI-powered insights. Get a free key at [groq.com](https://console.groq.com/keys)")
                 
-                ai_provider = st.selectbox(
-                    "Select AI Provider",
-                    ["None", "Groq (Free - Recommended)"],
-                    help="Groq offers fast, free AI inference with Llama and Mixtral models."
+                api_key = st.text_input(
+                    "Groq API Key", 
+                    type="password",
+                    help="Your API key is never stored and only used for this session.",
+                    value=st.session_state.get('ai_api_key', '')
                 )
                 
-                if ai_provider != "None":
-                    api_key = st.text_input(
-                        "API Key", 
-                        type="password",
-                        help="Your API key is never stored and only used for this session."
-                    )
-                    
-                    if api_key:
-                        st.success("✅ API key configured")
-                        st.session_state['ai_api_key'] = api_key
-                        st.session_state['ai_provider'] = ai_provider
-                    
-                    st.markdown("""
-                    **AI Insights will provide:**
-                    - Plain language explanation of results
-                    - Policy implications
-                    - Comparison between methods
-                    - Key findings summary
-                    """)
+                if api_key:
+                    st.success("✅ AI insights enabled")
+                    st.session_state['ai_api_key'] = api_key
+                    st.session_state['ai_provider'] = "Groq (Free - Recommended)"
+                else:
+                    st.warning("⚠️ Enter API key to enable AI insights")
+                
+                st.markdown("""
+                **AI Insights include:**
+                - Plain language explanation of results
+                - Policy implications
+                - Comparison between methods
+                - Key findings summary
+                """)
             else:
-                st.warning("Install groq package to enable AI insights: `pip install groq`")
+                st.error("❌ Groq package not installed. Run: `pip install groq`")
                 st.session_state['ai_api_key'] = None
                 st.session_state['ai_provider'] = None
     
@@ -1397,22 +1393,24 @@ def main():
                     summary_df = pd.DataFrame(summary_data)
                     st.dataframe(summary_df, use_container_width=True)
                 
-                # AI Insights Section
+                # AI Insights Section (Always Show)
                 st.divider()
+                st.subheader("🤖 AI-Powered Insights")
                 
                 api_key = st.session_state.get('ai_api_key')
                 ai_provider = st.session_state.get('ai_provider')
                 
-                if api_key and ai_provider and ai_provider != "None":
-                    st.subheader("🤖 AI-Powered Insights")
+                if api_key and ai_provider:
+                    # Auto-generate insights on first run or when regenerate is clicked
+                    results_hash = hash(str(sorted(results.keys())))
+                    should_generate = (
+                        'ai_insights' not in st.session_state or 
+                        st.session_state.get('results_hash') != results_hash or
+                        st.button("🔄 Regenerate Insights", use_container_width=False)
+                    )
                     
-                    col1, col2 = st.columns([3, 1])
-                    with col1:
-                        st.info("💡 Generate AI-powered interpretation of your results")
-                    with col2:
-                        generate_insights_btn = st.button("🤖 Generate Insights", type="primary", use_container_width=True)
-                    
-                    if generate_insights_btn:
+                    if should_generate:
+                        st.session_state['results_hash'] = results_hash
                         with st.spinner("Generating AI insights..."):
                             insights = generate_ai_insights(results, api_key, ai_provider)
                             
@@ -1451,8 +1449,17 @@ def main():
                             with st.expander("🎯 Policy Recommendations", expanded=False):
                                 st.markdown(st.session_state['ai_recommendations'])
                 
-                elif not api_key:
-                    st.info("🤖 Configure AI Insights in the sidebar to get AI-powered interpretation of your results.")
+                else:
+                    st.error("⚠️ AI Insights not available. Please configure your Groq API key in the sidebar.")
+                    st.info("Get a free API key at [console.groq.com/keys](https://console.groq.com/keys)")
+                    with st.expander("Why use AI Insights?"):
+                        st.markdown("""
+                        AI Insights help you:
+                        - Understand what the IOP percentages mean in plain language
+                        - Identify which circumstances matter most for policy
+                        - Get specific, actionable policy recommendations
+                        - Communicate results to non-technical stakeholders
+                        """)
                 
                 # Download results
                 st.subheader("Download Results")

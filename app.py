@@ -848,7 +848,9 @@ def generate_ai_insights(results, api_key, model_id="openai/gpt-oss-120b"):
         context = f"""
         You are an expert economist preparing a report for National Statistical Offices, ministries, and development partners.
         
-        TASK: Generate a "Key Findings" summary based on the IOP Inequality Analysis results below.
+        IMPORTANT: Use markdown formatting ONLY. Never use HTML tags like <br>. For line breaks, use double newlines.
+        
+        TASK: Generate a "Key Findings" summary using the circumstance-effort framework.
         
         DATA FROM ANALYSIS:
         - IOP (Gini) from C-Tree: {ctree_results.get('iop_gini_relative', 0):.1%}
@@ -862,13 +864,15 @@ def generate_ai_insights(results, api_key, model_id="openai/gpt-oss-120b"):
         {shapley_text if shapley_text else 'Not performed'}
         
         INSTRUCTIONS:
-        1. Create a markdown table with three columns: Metric | Value | Plain-Language Explanation
-        2. Include all key metrics from the analysis
-        3. For each metric, provide a clear explanation that a non-technical policymaker would understand
-        4. After the table, provide:
-           - A simple 2-3 sentence explanation of what the IOP percentage means in practical terms
-           - Comparative context (e.g., "This IOP level of {ctree_results.get('iop_gini_relative', 0):.0%} is [high/moderate/low] compared to countries at similar development stages, where typical values range from X% to Y%")
-           - Key insight about which circumstances matter most and why
+        1. Use the circumstance-effort framework terminology throughout
+        2. Explain that circumstances are factors beyond individual control (birthplace, parental background, gender)
+        3. Explain that effort represents individual choices and actions
+        4. Create a markdown table with three columns: Metric | Value | Plain-Language Explanation
+        5. For each metric, provide intuitive explanations a policymaker would immediately understand
+        6. After the table, provide:
+           - A simple explanation: "{ctree_results.get('iop_gini_relative', 0):.0%} of inequality stems from circumstances beyond individual control, while the remaining comes from differences in effort and choices"
+           - Comparative context with similar countries
+           - Which circumstances are the main drivers and their practical implications
         
         FORMAT YOUR RESPONSE AS:
         
@@ -909,7 +913,7 @@ def generate_ai_insights(results, api_key, model_id="openai/gpt-oss-120b"):
                 }
             ],
             temperature=0.7,
-            max_tokens=1500  # Increased for complete Key Findings table
+            max_tokens=2500  # Increased to ensure complete tables
         )
         
         return completion.choices[0].message.content
@@ -937,17 +941,23 @@ def generate_policy_recommendations(results, api_key, model_id="openai/gpt-oss-1
         context = f"""
         You are a policy advisor preparing recommendations for government ministries and development partners.
         
-        TASK: Generate actionable policy recommendations based on the IOP analysis findings.
+        IMPORTANT: Use markdown formatting ONLY. Never use HTML tags. For line breaks, use double newlines.
+        
+        TASK: Generate actionable policy recommendations using the circumstance-effort framework.
         
         KEY FINDINGS FROM ANALYSIS:
-        - Total IOP (share of inequality due to circumstances): {ctree_results.get('iop_gini_relative', 0):.1%}
+        - Circumstance-based inequality: {ctree_results.get('iop_gini_relative', 0):.1%} of total inequality
+        - Effort-based inequality: {100 - ctree_results.get('iop_gini_relative', 0):.1%} of total inequality
         - Number of population types identified: {ctree_results.get('n_types', 'N/A')}
         
-        TOP CIRCUMSTANCES CONTRIBUTING TO INEQUALITY:
+        TOP CIRCUMSTANCES DRIVING INEQUALITY:
         {top_circumstances_text if top_circumstances_text else 'No Shapley decomposition available'}
         
+        FRAMEWORK CONTEXT:
+        Under the circumstance-effort framework, policy should focus on equalizing circumstances (factors beyond individual control) while preserving incentives for effort. The goal is equal opportunity, not equal outcomes.
+        
         INSTRUCTIONS:
-        Based on the dominance of these circumstances (especially Birth Area and Father's/Mother's Education if present), generate concrete, implementable policy recommendations.
+        Based on these circumstances, generate concrete policy recommendations that level the playing field without undermining effort-based incentives.
         
         Structure your response as follows:
         
@@ -993,7 +1003,7 @@ def generate_policy_recommendations(results, api_key, model_id="openai/gpt-oss-1
                 }
             ],
             temperature=0.6,
-            max_tokens=1200  # Increased for complete policy recommendations table
+            max_tokens=2500  # Increased to ensure complete policy tables
         )
         
         return completion.choices[0].message.content
@@ -1101,22 +1111,55 @@ def main():
         # CPI-PPP Adjustment Section
         st.header("💱 PPP Adjustment")
         
-        cpi_ppp_file = st.file_uploader(
-            "Upload CPI-PPP Reference File",
-            type=['xlsx', 'xls'],
-            key="cpi_ppp_upload",
-            help="Excel file with CPI values (1960-2022, base year 2017=100) and PPP rates in column BO"
+        # Option to use sample CPI-PPP file
+        use_sample_ppp = st.checkbox(
+            "Use sample CPI-PPP file", 
+            value=False,
+            help="Use the pre-loaded CPI-PPP reference file with data for all countries"
         )
         
-        if cpi_ppp_file:
-            st.success("✅ CPI-PPP file loaded")
+        if use_sample_ppp:
+            # Load sample CPI-PPP file from parent directory
+            try:
+                import os
+                parent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+                sample_ppp_path = os.path.join(parent_dir, 'cpi_ppp.xlsx')
+                
+                # Check if file exists
+                if os.path.exists(sample_ppp_path):
+                    # Create a file-like object for consistency
+                    with open(sample_ppp_path, 'rb') as f:
+                        cpi_ppp_file = f.read()
+                    st.success("✅ Sample CPI-PPP file loaded")
+                    cpi_ppp_loaded = True
+                else:
+                    st.error("❌ Sample CPI-PPP file not found in parent directory")
+                    cpi_ppp_file = None
+                    cpi_ppp_loaded = False
+            except Exception as e:
+                st.error(f"❌ Error loading sample file: {str(e)}")
+                cpi_ppp_file = None
+                cpi_ppp_loaded = False
+        else:
+            # Regular file upload
+            cpi_ppp_file = st.file_uploader(
+                "Upload CPI-PPP Reference File",
+                type=['xlsx', 'xls'],
+                key="cpi_ppp_upload",
+                help="Excel file with CPI values (1960-2022, base year 2017=100) and PPP rates in column BO"
+            )
+            cpi_ppp_loaded = cpi_ppp_file is not None
+        
+        if cpi_ppp_loaded:
+            if not use_sample_ppp:
+                st.success("✅ CPI-PPP file loaded")
             apply_ppp_adjustment = st.checkbox(
                 "Apply PPP adjustment to income", 
                 value=True,
                 help="Converts local currency to international dollars (PPP-adjusted, 2017 base)"
             )
         else:
-            st.info("📁 Optional: Upload CPI-PPP file for international comparisons")
+            st.info("📁 Optional: Upload CPI-PPP file or use sample file for international comparisons")
             apply_ppp_adjustment = False
         
         st.divider()

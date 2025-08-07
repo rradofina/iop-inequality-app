@@ -313,78 +313,78 @@ class ConditionalTree:
             return None
     
     def get_interactive_tree_plot(self, feature_names, data=None):
-        """Generate interactive Plotly treemap visualization."""
+        """Generate interactive Plotly sunburst visualization."""
         from sklearn.tree import _tree
         import plotly.graph_objects as go
-        import plotly.express as px
         
         tree = self.tree.tree_
         
-        # Build hierarchical data for treemap
+        # Build hierarchical data for sunburst
+        ids = []
         labels = []
         parents = []
         values = []
         colors = []
-        hover_texts = []
         
-        def add_node(node_id, parent_label="", path="Root"):
+        def add_node(node_id, parent_id=None):
             if tree.feature[node_id] != _tree.TREE_UNDEFINED:
                 # Internal node
                 feature = feature_names[tree.feature[node_id]]
                 threshold = tree.threshold[node_id]
                 n_samples = tree.n_node_samples[node_id]
                 
-                # Create label for this node
-                label = f"{feature} ≤ {threshold:.2f}"
-                full_label = f"{path} → {label}"
+                # Create unique ID and label for this node
+                node_str_id = f"node_{node_id}"
+                label = f"{feature} ≤ {threshold:.1f}"
                 
-                labels.append(full_label)
-                parents.append(parent_label)
+                ids.append(node_str_id)
+                labels.append(label)
+                parents.append(parent_id if parent_id else "")
                 values.append(n_samples)
-                colors.append(n_samples)  # Color by number of samples
-                hover_texts.append(f"Feature: {feature}<br>Threshold: {threshold:.2f}<br>Samples: {n_samples}")
+                colors.append(n_samples)
                 
                 # Process children
                 left_child = tree.children_left[node_id]
                 right_child = tree.children_right[node_id]
                 
-                add_node(left_child, full_label, f"{path} → {feature}≤{threshold:.2f}")
-                add_node(right_child, full_label, f"{path} → {feature}>{threshold:.2f}")
+                add_node(left_child, node_str_id)
+                add_node(right_child, node_str_id)
             else:
                 # Leaf node
                 value = tree.value[node_id][0, 0]
                 n_samples = tree.n_node_samples[node_id]
                 
-                label = f"Type: ${value:.0f}"
-                full_label = f"{path} → {label}"
+                node_str_id = f"leaf_{node_id}"
+                label = f"${value:.0f}"
                 
-                labels.append(full_label)
-                parents.append(parent_label)
+                ids.append(node_str_id)
+                labels.append(label)
+                parents.append(parent_id if parent_id else "")
                 values.append(n_samples)
-                colors.append(value)  # Color by predicted value
-                hover_texts.append(f"Mean Income: ${value:.2f}<br>Samples: {n_samples}")
+                colors.append(value)
         
-        # Build the tree data
+        # Build the tree data starting from root
         add_node(0)
         
-        # Create treemap
-        fig = go.Figure(go.Treemap(
-            labels=[label.split(" → ")[-1] for label in labels],  # Show only the last part
+        # Create sunburst chart
+        fig = go.Figure(go.Sunburst(
+            ids=ids,
+            labels=labels,
             parents=parents,
             values=values,
-            text=hover_texts,
-            hovertemplate='<b>%{label}</b><br>%{text}<extra></extra>',
+            branchvalues="total",
             marker=dict(
                 colorscale='Viridis',
-                cmid=sum(colors)/len(colors),
-                colorbar=dict(title="Value")
+                colorbar=dict(title="Value"),
+                line=dict(width=1)
             ),
-            pathbar=dict(visible=True)
+            hovertemplate='<b>%{label}</b><br>Samples: %{value}<extra></extra>',
+            textinfo="label"
         ))
         
         fig.update_layout(
-            title="Interactive Decision Tree (Click to explore branches)",
-            height=600,
+            title="Interactive Decision Tree (Click to explore)",
+            height=700,
             margin=dict(t=50, l=0, r=0, b=0)
         )
         
@@ -1023,21 +1023,22 @@ def main():
                         
                     elif viz_type == "Interactive Tree":
                         st.write("**Interactive Decision Tree Visualization**")
-                        st.info("🔍 Click on sections to zoom in and explore different branches. The path bar at top shows your current location in the tree.")
+                        st.info("🔍 Click on any section to zoom in and explore branches. Click the center to zoom back out.")
                         
                         try:
-                            # Generate interactive treemap
+                            # Generate interactive sunburst chart
                             interactive_fig = ctree_results['model'].get_interactive_tree_plot(selected_circumstances)
                             st.plotly_chart(interactive_fig, use_container_width=True)
                             
                             # Add explanation
                             st.markdown("""
-                            **How to use:**
-                            - **Click** on any box to zoom into that branch
-                            - **Click** on the path bar at top to navigate back
-                            - **Hover** over boxes to see details
-                            - Box **size** represents the number of samples
-                            - Box **color** represents the predicted value or sample count
+                            **How to use the Sunburst Chart:**
+                            - **Click** on any segment to zoom into that branch
+                            - **Click** the center circle to zoom back out
+                            - **Hover** over segments to see sample counts
+                            - Segment **size** represents the number of samples
+                            - **Colors** show different values/regions
+                            - Inner rings are decision nodes, outer rings are predictions
                             """)
                         except Exception as e:
                             st.error(f"Failed to generate interactive tree: {str(e)}")

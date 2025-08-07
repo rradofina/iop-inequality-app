@@ -909,7 +909,7 @@ def generate_ai_insights(results, api_key, model_id="openai/gpt-oss-120b"):
                 }
             ],
             temperature=0.7,
-            max_tokens=600
+            max_tokens=1500  # Increased for complete Key Findings table
         )
         
         return completion.choices[0].message.content
@@ -993,7 +993,7 @@ def generate_policy_recommendations(results, api_key, model_id="openai/gpt-oss-1
                 }
             ],
             temperature=0.6,
-            max_tokens=400
+            max_tokens=1200  # Increased for complete policy recommendations table
         )
         
         return completion.choices[0].message.content
@@ -1271,13 +1271,19 @@ def main():
                     value=st.session_state.get('ai_api_key', '')
                 )
                 
-                # Connect to AI Model button directly below API key input
-                if api_key:
-                    if 'ai_connected' not in st.session_state:
-                        st.session_state['ai_connected'] = False
-                    
-                    if not st.session_state['ai_connected']:
-                        if st.button("🔌 Connect to AI Model", use_container_width=True, key="connect_ai_button"):
+                # Initialize connection state
+                if 'ai_connected' not in st.session_state:
+                    st.session_state['ai_connected'] = False
+                
+                # Connect to AI Model button - always visible below API key input
+                if not st.session_state['ai_connected']:
+                    # Show connect button (disabled if no API key)
+                    if st.button("🔌 Connect to AI Model", 
+                                use_container_width=True, 
+                                key="connect_ai_button",
+                                disabled=(not api_key),
+                                help="Enter API key above to enable connection"):
+                        if api_key:
                             with st.spinner("Connecting to AI..."):
                                 # Save API key
                                 st.session_state['ai_api_key'] = api_key
@@ -1289,48 +1295,48 @@ def main():
                                     st.rerun()
                                 else:
                                     st.error("❌ Connection failed. Please check your API key.")
-                    else:
-                        st.success("✅ Connected to AI Model")
-                        
-                        # Model selection (only show after connected)
-                        st.subheader("🤖 Select AI Model")
-                        
-                        model_options = {
-                            "GPT-OSS-120B (Primary - Best)": "openai/gpt-oss-120b",
-                            "GPT-OSS-20B (Secondary - Faster)": "openai/gpt-oss-20b",
-                            "Llama 3.3 70B (Alternative)": "llama-3.3-70b-versatile",
-                            "Mixtral 8x7B (Lightweight)": "mixtral-8x7b-32768"
-                        }
-                        
-                        selected_model_name = st.selectbox(
-                            "Choose Model",
-                            options=list(model_options.keys()),
-                            index=0,
-                            help="GPT-OSS-120B: Primary model with best reasoning\nGPT-OSS-20B: Secondary model, faster but still excellent\nLlama 3.3: Alternative fast model\nMixtral: Lightweight and quick"
-                        )
-                        
-                        st.session_state['ai_model'] = model_options[selected_model_name]
-                        st.session_state['ai_model_name'] = selected_model_name
-                        
-                        # Show model info
-                        if "GPT-OSS-120B" in selected_model_name:
-                            st.info("🎆 Primary Model: Best for detailed policy analysis")
-                        elif "GPT-OSS-20B" in selected_model_name:
-                            st.info("⚡ Secondary Model: Faster with excellent insights")
-                        elif "Llama" in selected_model_name:
-                            st.info("🦙 Alternative: Quick balanced analysis")
-                        else:
-                            st.info("🚀 Lightweight: Fast basic insights")
-                        
-                        # Disconnect button
-                        if st.button("🔌 Disconnect", use_container_width=True):
-                            st.session_state['ai_connected'] = False
-                            if 'ai_api_key' in st.session_state:
-                                del st.session_state['ai_api_key']
-                            st.rerun()
+                    
+                    if not api_key:
+                        st.info("👆 Enter your API key above to connect")
                 else:
-                    st.warning("⚠️ Enter API key to enable AI insights")
-                    st.session_state['ai_connected'] = False
+                    st.success("✅ Connected to AI Model")
+                    
+                    # Model selection (only show after connected)
+                    st.subheader("🤖 Select AI Model")
+                    
+                    model_options = {
+                        "GPT-OSS-120B (Primary - Best)": "openai/gpt-oss-120b",
+                        "GPT-OSS-20B (Secondary - Faster)": "openai/gpt-oss-20b",
+                        "Llama 3.3 70B (Alternative)": "llama-3.3-70b-versatile",
+                        "Mixtral 8x7B (Lightweight)": "mixtral-8x7b-32768"
+                    }
+                    
+                    selected_model_name = st.selectbox(
+                        "Choose Model",
+                        options=list(model_options.keys()),
+                        index=0,
+                        help="GPT-OSS-120B: Primary model with best reasoning\nGPT-OSS-20B: Secondary model, faster but still excellent\nLlama 3.3: Alternative fast model\nMixtral: Lightweight and quick"
+                    )
+                    
+                    st.session_state['ai_model'] = model_options[selected_model_name]
+                    st.session_state['ai_model_name'] = selected_model_name
+                    
+                    # Show model info
+                    if "GPT-OSS-120B" in selected_model_name:
+                        st.info("🎆 Primary Model: Best for detailed policy analysis")
+                    elif "GPT-OSS-20B" in selected_model_name:
+                        st.info("⚡ Secondary Model: Faster with excellent insights")
+                    elif "Llama" in selected_model_name:
+                        st.info("🦙 Alternative: Quick balanced analysis")
+                    else:
+                        st.info("🚀 Lightweight: Fast basic insights")
+                    
+                    # Disconnect button
+                    if st.button("🔌 Disconnect", use_container_width=True):
+                        st.session_state['ai_connected'] = False
+                        if 'ai_api_key' in st.session_state:
+                            del st.session_state['ai_api_key']
+                        st.rerun()
                 
                 st.markdown("""
                 **AI Insights include:**

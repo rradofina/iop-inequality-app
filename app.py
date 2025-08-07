@@ -244,52 +244,152 @@ class ConditionalTree:
                 X_encoded[col] = X_encoded[col].cat.codes
         return self.tree.apply(X_encoded.values)
     
-    def get_tree_plot(self, feature_names):
+    def get_tree_plot(self, feature_names, max_depth_display=None):
         """Generate tree visualization with safety checks."""
         # Get tree complexity metrics
         n_nodes = self.tree.tree_.node_count
         depth = self.tree.get_depth()
         
-        # Safety check: prevent visualization of very large trees
-        MAX_NODES = 100
-        MAX_DEPTH = 15
+        # Safety check: prevent visualization of extremely large trees
+        MAX_NODES = 200  # Increased from 100
+        MAX_DEPTH = 20   # Increased from 15
         
         if n_nodes > MAX_NODES or depth > MAX_DEPTH:
             # Return None to indicate tree is too large to visualize
             return None
         
-        # Calculate figure size with stricter limits to prevent DecompressionBombError
-        # Maximum total pixels: width * height * dpi^2 should be < 178956970 (PIL limit)
-        # Using conservative limits: max 15x10 inches at 50 DPI = 750x500 = 375,000 pixels
-        width = min(15, max(8, n_nodes * 0.15))  # Much smaller than before
-        height = min(10, max(5, depth * 1.5))  # Much smaller than before
-        dpi = 50  # Lower DPI to further reduce size
+        # Improved size calculation based on tree structure
+        # Use logarithmic scaling for very large trees
+        import math
+        if n_nodes > 50:
+            width = min(20, 8 + math.log(n_nodes) * 2)
+            height = min(15, 5 + depth * 0.8)
+        else:
+            width = min(15, max(8, n_nodes * 0.2))
+            height = min(10, max(5, depth * 1.2))
+        
+        dpi = 50  # Keep low DPI for safety
         
         # Additional safety check for total pixel count
         total_pixels = (width * dpi) * (height * dpi)
-        if total_pixels > 2_000_000:  # Conservative limit well below PIL's bomb threshold
+        if total_pixels > 3_000_000:  # Slightly increased limit
             # Scale down if still too large
-            scale_factor = (2_000_000 / total_pixels) ** 0.5
+            scale_factor = (3_000_000 / total_pixels) ** 0.5
             width *= scale_factor
             height *= scale_factor
         
         try:
             fig, ax = plt.subplots(figsize=(width, height), dpi=dpi)
-            plot_tree(self.tree, 
-                     feature_names=feature_names, 
-                     filled=True, 
-                     rounded=True, 
-                     ax=ax, 
-                     fontsize=10,  # Smaller font
-                     proportion=True,
-                     precision=2,
-                     impurity=False)
+            
+            # Apply max_depth_display if specified
+            if max_depth_display is not None:
+                # Note: sklearn's plot_tree doesn't support max_depth directly
+                # We'll use it but note this limitation
+                plot_tree(self.tree, 
+                         feature_names=feature_names, 
+                         filled=True, 
+                         rounded=True, 
+                         ax=ax, 
+                         fontsize=9,
+                         proportion=True,
+                         precision=2,
+                         impurity=False,
+                         max_depth=max_depth_display)  # This may not work with sklearn
+            else:
+                plot_tree(self.tree, 
+                         feature_names=feature_names, 
+                         filled=True, 
+                         rounded=True, 
+                         ax=ax, 
+                         fontsize=9,
+                         proportion=True,
+                         precision=2,
+                         impurity=False)
             
             plt.tight_layout()
             return fig
         except Exception as e:
             # If any error occurs during plotting, return None
             return None
+    
+    def get_interactive_tree_plot(self, feature_names, data=None):
+        """Generate interactive Plotly treemap visualization."""
+        from sklearn.tree import _tree
+        import plotly.graph_objects as go
+        import plotly.express as px
+        
+        tree = self.tree.tree_
+        
+        # Build hierarchical data for treemap
+        labels = []
+        parents = []
+        values = []
+        colors = []
+        hover_texts = []
+        
+        def add_node(node_id, parent_label="", path="Root"):
+            if tree.feature[node_id] != _tree.TREE_UNDEFINED:
+                # Internal node
+                feature = feature_names[tree.feature[node_id]]
+                threshold = tree.threshold[node_id]
+                n_samples = tree.n_node_samples[node_id]
+                
+                # Create label for this node
+                label = f"{feature} ≤ {threshold:.2f}"
+                full_label = f"{path} → {label}"
+                
+                labels.append(full_label)
+                parents.append(parent_label)
+                values.append(n_samples)
+                colors.append(n_samples)  # Color by number of samples
+                hover_texts.append(f"Feature: {feature}<br>Threshold: {threshold:.2f}<br>Samples: {n_samples}")
+                
+                # Process children
+                left_child = tree.children_left[node_id]
+                right_child = tree.children_right[node_id]
+                
+                add_node(left_child, full_label, f"{path} → {feature}≤{threshold:.2f}")
+                add_node(right_child, full_label, f"{path} → {feature}>{threshold:.2f}")
+            else:
+                # Leaf node
+                value = tree.value[node_id][0, 0]
+                n_samples = tree.n_node_samples[node_id]
+                
+                label = f"Type: ${value:.0f}"
+                full_label = f"{path} → {label}"
+                
+                labels.append(full_label)
+                parents.append(parent_label)
+                values.append(n_samples)
+                colors.append(value)  # Color by predicted value
+                hover_texts.append(f"Mean Income: ${value:.2f}<br>Samples: {n_samples}")
+        
+        # Build the tree data
+        add_node(0)
+        
+        # Create treemap
+        fig = go.Figure(go.Treemap(
+            labels=[label.split(" → ")[-1] for label in labels],  # Show only the last part
+            parents=parents,
+            values=values,
+            text=hover_texts,
+            hovertemplate='<b>%{label}</b><br>%{text}<extra></extra>',
+            marker=dict(
+                colorscale='Viridis',
+                cmid=sum(colors)/len(colors),
+                colorbar=dict(title="Value")
+            ),
+            pathbar=dict(visible=True)
+        ))
+        
+        fig.update_layout(
+            title="Interactive Decision Tree (Click to explore branches)",
+            height=600,
+            margin=dict(t=50, l=0, r=0, b=0)
+        )
+        
+        return fig
+    
     
     def get_tree_rules(self, feature_names):
         """Extract tree rules as text."""
@@ -858,19 +958,27 @@ def main():
                     # Add visualization type selector
                     viz_type = st.radio(
                         "Select visualization type:",
-                        ["Tree Diagram", "Text Rules"],
+                        ["Tree Diagram", "Interactive Tree", "Text Rules"],
                         horizontal=True,
                         key="viz_type_selector"  # Add key for state management
                     )
                     
                     if viz_type == "Tree Diagram":
+                        # Add option to simplify tree
+                        if stats['n_nodes'] > 100:
+                            st.info("💡 Large tree detected. Consider using 'Interactive Tree' view for better navigation.")
+                            simplify = st.checkbox("Simplify tree visualization (show first 5 levels only)", value=False)
+                            max_depth_display = 5 if simplify else None
+                        else:
+                            max_depth_display = None
+                        
                         # Try to create tree plot
-                        tree_fig = ctree_results['model'].get_tree_plot(selected_circumstances)
+                        tree_fig = ctree_results['model'].get_tree_plot(selected_circumstances, max_depth_display=max_depth_display)
                         
                         if tree_fig is None:
                             # Tree is too large or error occurred
-                            st.warning("⚠️ Tree is too large to visualize as a diagram.")
-                            st.info("The tree structure is too complex for visual rendering. Please use 'Text Rules' view to explore the decision paths.")
+                            st.warning("⚠️ Tree is too large to visualize as a static diagram.")
+                            st.info("Please use 'Interactive Tree' or 'Text Rules' view to explore the decision paths.")
                             
                             # Automatically show text rules as fallback
                             st.write("**Showing text rules instead:**")
@@ -913,6 +1021,42 @@ def main():
                                     </div>
                                     """, unsafe_allow_html=True)
                         
+                    elif viz_type == "Interactive Tree":
+                        st.write("**Interactive Decision Tree Visualization**")
+                        st.info("🔍 Click on sections to zoom in and explore different branches. The path bar at top shows your current location in the tree.")
+                        
+                        try:
+                            # Generate interactive treemap
+                            interactive_fig = ctree_results['model'].get_interactive_tree_plot(selected_circumstances)
+                            st.plotly_chart(interactive_fig, use_container_width=True)
+                            
+                            # Add explanation
+                            st.markdown("""
+                            **How to use:**
+                            - **Click** on any box to zoom into that branch
+                            - **Click** on the path bar at top to navigate back
+                            - **Hover** over boxes to see details
+                            - Box **size** represents the number of samples
+                            - Box **color** represents the predicted value or sample count
+                            """)
+                        except Exception as e:
+                            st.error(f"Failed to generate interactive tree: {str(e)}")
+                            st.info("Showing text rules as fallback...")
+                            # Fallback to text rules
+                            rules = ctree_results['model'].get_tree_rules(selected_circumstances)
+                            leaf_rules = [r for r in rules if r.get('is_leaf', False)]
+                            
+                            for i, rule in enumerate(leaf_rules[:10]):
+                                clean_rule = rule['rule'].replace("Root AND ", "")
+                                st.markdown(f"""
+                                <div class="tree-rule">
+                                <strong>Type {i+1}</strong><br>
+                                Rule: {clean_rule}<br>
+                                Mean Income: ${rule['value']:.2f}<br>
+                                Samples: {rule['samples']}
+                                </div>
+                                """, unsafe_allow_html=True)
+                    
                     elif viz_type == "Text Rules":
                         st.write("**Decision rules for each type:**")
                         rules = ctree_results['model'].get_tree_rules(selected_circumstances)

@@ -761,31 +761,57 @@ def generate_ai_insights(results, api_key, model_id="openai/gpt-oss-120b"):
         cforest_results = results.get('cforest', {})
         shapley_results = results.get('shapley', {})
         
+        # Format Shapley results for better readability
+        shapley_text = ""
+        if shapley_results and shapley_results.get('relative'):
+            sorted_shapley = sorted(shapley_results['relative'].items(), key=lambda x: x[1], reverse=True)
+            shapley_text = "\n".join([f"- {circ}: {val:.1f}%" for circ, val in sorted_shapley])
+        
         context = f"""
-        You are an expert in inequality economics. Please provide a clear, policy-oriented interpretation of these Inequality of Opportunity (IOP) analysis results.
+        You are an expert economist advising National Statistical Offices and policymakers. 
+        Analyze these Inequality of Opportunity (IOP) results and provide insights that are accessible to both technical and non-technical audiences.
         
-        RESULTS SUMMARY:
+        BACKGROUND:
+        Inequality of Opportunity measures how much of total inequality is due to circumstances beyond individual control (like birthplace, parental education, gender) versus personal effort and choices.
         
-        C-Tree Analysis:
-        - IOP (Gini): {ctree_results.get('iop_gini_relative', 0):.1%}
-        - IOP (MLD): {ctree_results.get('iop_mld_relative', 0):.1%}
-        - Number of Types: {ctree_results.get('n_types', 'N/A')}
+        ANALYSIS RESULTS:
+        
+        IOP Share of Total Inequality:
+        - C-Tree Method: {ctree_results.get('iop_gini_relative', 0):.1%} (Gini), {ctree_results.get('iop_mld_relative', 0):.1%} (MLD)
+        - C-Forest Method: {cforest_results.get('iop_gini_relative', 0):.1%} (Gini), {cforest_results.get('iop_mld_relative', 0):.1%} (MLD)
+        - Population Types Identified: {ctree_results.get('n_types', 'N/A')}
         - Total Inequality (Gini): {ctree_results.get('gini_total', 0):.4f}
         
-        C-Forest Analysis:
-        - IOP (Gini): {cforest_results.get('iop_gini_relative', 0):.1%}
-        - IOP (MLD): {cforest_results.get('iop_mld_relative', 0):.1%}
+        Circumstance Contributions (Shapley Decomposition):
+        {shapley_text if shapley_text else 'Not performed'}
         
-        Shapley Decomposition (relative contributions):
-        {dict(shapley_results.get('relative', {})) if shapley_results else 'Not performed'}
+        Please provide a comprehensive analysis with these sections:
         
-        Please provide:
-        1. A simple explanation of what these IOP percentages mean
-        2. Which circumstances are most important and why
-        3. What this implies for policy interventions
-        4. Any notable patterns or concerns
+        ## Key Findings
         
-        Keep the explanation concise and accessible to policymakers.
+        ### Simple Explanation of IOP Percentages
+        Explain in layman terms what it means that {ctree_results.get('iop_gini_relative', 0):.1%} of inequality is due to circumstances. 
+        Is this high or low compared to typical findings? What does this imply about fairness in this society?
+        
+        ### Most Important Circumstances and Why
+        Based on the Shapley decomposition, identify the top 2-3 circumstances and explain:
+        - Why each circumstance matters (e.g., Birth Area might reflect urban-rural divides, access to infrastructure)
+        - The transmission mechanisms (how does father's education affect opportunities?)
+        - Interconnections between circumstances
+        
+        ### Policy Implications
+        Provide specific, actionable recommendations:
+        - Which circumstances should be prioritized for intervention?
+        - What types of policies could address each key circumstance?
+        - Short-term vs long-term strategies
+        
+        ### Notable Patterns and Concerns
+        - Any surprising findings?
+        - Comparison with international benchmarks if relevant
+        - Data limitations or areas needing further investigation
+        
+        Write in a professional but accessible style suitable for government officials and development partners.
+        Focus on actionable insights rather than technical details.
         """
         
         # Use the selected model or default to GPT-OSS-120B
@@ -1137,54 +1163,66 @@ def main():
                     value=st.session_state.get('ai_api_key', '')
                 )
                 
+                # Connect to AI Model button directly below API key input
                 if api_key:
-                    st.success("✅ AI insights enabled")
-                    st.session_state['ai_api_key'] = api_key
-                    st.session_state['ai_provider'] = "Groq"
+                    if 'ai_connected' not in st.session_state:
+                        st.session_state['ai_connected'] = False
                     
-                    # Model selection
-                    st.subheader("🤖 Select AI Model")
-                    
-                    model_options = {
-                        "GPT-OSS-120B (Primary - Best)": "openai/gpt-oss-120b",
-                        "GPT-OSS-20B (Secondary - Faster)": "openai/gpt-oss-20b",
-                        "Llama 3.3 70B (Alternative)": "llama-3.3-70b-versatile",
-                        "Mixtral 8x7B (Lightweight)": "mixtral-8x7b-32768"
-                    }
-                    
-                    selected_model_name = st.selectbox(
-                        "Choose Model",
-                        options=list(model_options.keys()),
-                        index=0,
-                        help="GPT-OSS-120B: Primary model with best reasoning\nGPT-OSS-20B: Secondary model, faster but still excellent\nLlama 3.3: Alternative fast model\nMixtral: Lightweight and quick"
-                    )
-                    
-                    st.session_state['ai_model'] = model_options[selected_model_name]
-                    st.session_state['ai_model_name'] = selected_model_name
-                    
-                    # Show model info
-                    if "GPT-OSS-120B" in selected_model_name:
-                        st.info("🎆 Primary Model: OpenAI's most powerful open model with superior reasoning")
-                    elif "GPT-OSS-20B" in selected_model_name:
-                        st.info("⚡ Secondary Model: Faster OpenAI model with excellent quality-speed balance")
-                    elif "Llama" in selected_model_name:
-                        st.info("🦙 Alternative: Meta's Llama 3.3 with balanced performance")
+                    if not st.session_state['ai_connected']:
+                        if st.button("🔌 Connect to AI Model", use_container_width=True, key="connect_ai_button"):
+                            with st.spinner("Connecting to AI..."):
+                                # Save API key
+                                st.session_state['ai_api_key'] = api_key
+                                st.session_state['ai_provider'] = "Groq"
+                                
+                                # Test connection with default model
+                                if test_ai_connection(api_key, "openai/gpt-oss-120b"):
+                                    st.session_state['ai_connected'] = True
+                                    st.rerun()
+                                else:
+                                    st.error("❌ Connection failed. Please check your API key.")
                     else:
-                        st.info("🚀 Lightweight: Mixtral for fast, efficient analysis")
-                    
-                    # Test AI Connection Button
-                    st.divider()
-                    if st.button("🧪 Test AI Connection", use_container_width=True, key="test_ai_button"):
-                        with st.spinner(f"Testing connection with {selected_model_name}..."):
-                            if test_ai_connection(api_key, st.session_state['ai_model']):
-                                st.success("✅ AI connection successful! Ready to analyze results.")
-                                st.balloons()
-                            else:
-                                st.error("❌ Connection failed. Please check your API key or try a different model.")
-                                st.info("Tip: Make sure your API key is valid and has sufficient credits.")
-                    
+                        st.success("✅ Connected to AI Model")
+                        
+                        # Model selection (only show after connected)
+                        st.subheader("🤖 Select AI Model")
+                        
+                        model_options = {
+                            "GPT-OSS-120B (Primary - Best)": "openai/gpt-oss-120b",
+                            "GPT-OSS-20B (Secondary - Faster)": "openai/gpt-oss-20b",
+                            "Llama 3.3 70B (Alternative)": "llama-3.3-70b-versatile",
+                            "Mixtral 8x7B (Lightweight)": "mixtral-8x7b-32768"
+                        }
+                        
+                        selected_model_name = st.selectbox(
+                            "Choose Model",
+                            options=list(model_options.keys()),
+                            index=0,
+                            help="GPT-OSS-120B: Primary model with best reasoning\nGPT-OSS-20B: Secondary model, faster but still excellent\nLlama 3.3: Alternative fast model\nMixtral: Lightweight and quick"
+                        )
+                        
+                        st.session_state['ai_model'] = model_options[selected_model_name]
+                        st.session_state['ai_model_name'] = selected_model_name
+                        
+                        # Show model info
+                        if "GPT-OSS-120B" in selected_model_name:
+                            st.info("🎆 Primary Model: Best for detailed policy analysis")
+                        elif "GPT-OSS-20B" in selected_model_name:
+                            st.info("⚡ Secondary Model: Faster with excellent insights")
+                        elif "Llama" in selected_model_name:
+                            st.info("🦙 Alternative: Quick balanced analysis")
+                        else:
+                            st.info("🚀 Lightweight: Fast basic insights")
+                        
+                        # Disconnect button
+                        if st.button("🔌 Disconnect", use_container_width=True):
+                            st.session_state['ai_connected'] = False
+                            if 'ai_api_key' in st.session_state:
+                                del st.session_state['ai_api_key']
+                            st.rerun()
                 else:
                     st.warning("⚠️ Enter API key to enable AI insights")
+                    st.session_state['ai_connected'] = False
                 
                 st.markdown("""
                 **AI Insights include:**
@@ -1632,81 +1670,68 @@ def main():
                     summary_df = pd.DataFrame(summary_data)
                     st.dataframe(summary_df, use_container_width=True)
                 
-                # AI Insights Section (Always Show)
+                # AI Insights Section (Automatic if connected)
                 st.divider()
                 st.subheader("🤖 AI-Powered Insights")
                 
                 api_key = st.session_state.get('ai_api_key')
-                ai_provider = st.session_state.get('ai_provider')
+                ai_connected = st.session_state.get('ai_connected', False)
                 model_id = st.session_state.get('ai_model', 'openai/gpt-oss-120b')
                 model_name = st.session_state.get('ai_model_name', 'GPT-OSS-120B')
                 
-                if api_key and ai_provider:
-                    # Manual button to run AI analysis
-                    col1, col2, col3 = st.columns([2, 2, 1])
-                    with col1:
-                        run_analysis = st.button(
-                            "🤖 Run AI Analysis", 
-                            type="primary", 
-                            use_container_width=True,
-                            help="Generate AI-powered interpretation of your results"
-                        )
-                    with col2:
-                        st.info(f"Using: {model_name}")
-                    with col3:
-                        if 'ai_insights' in st.session_state:
-                            clear_insights = st.button("🗑️ Clear", use_container_width=True)
-                            if clear_insights:
+                if ai_connected and api_key:
+                    # Check if we need to generate insights
+                    results_hash = str(hash(str(results)))
+                    
+                    # Auto-generate insights if not already generated for these results
+                    if 'last_results_hash' not in st.session_state or st.session_state.get('last_results_hash') != results_hash:
+                        st.session_state['last_results_hash'] = results_hash
+                        
+                        with st.spinner(f"Analyzing results with {model_name}..."):
+                            insights = generate_ai_insights(results, api_key, model_id)
+                            
+                            if insights and not insights.startswith("Error"):
+                                st.session_state['ai_insights'] = insights
+                                
+                                # Generate policy recommendations
+                                recommendations = generate_policy_recommendations(results, api_key, model_id)
+                                if recommendations and not recommendations.startswith("Error"):
+                                    st.session_state['ai_recommendations'] = recommendations
+                    
+                    # Display saved insights
+                    if 'ai_insights' in st.session_state:
+                        st.success(f"✅ Analysis Complete - Using {model_name}")
+                        
+                        # Main insights
+                        with st.container():
+                            st.markdown("#### 📊 Key Findings")
+                            st.markdown(st.session_state['ai_insights'])
+                        
+                        # Policy recommendations
+                        if 'ai_recommendations' in st.session_state:
+                            with st.expander("🎯 Policy Recommendations", expanded=True):
+                                st.markdown(st.session_state['ai_recommendations'])
+                        
+                        # Regenerate button
+                        col1, col2 = st.columns([3, 1])
+                        with col2:
+                            if st.button("🔄 Regenerate", use_container_width=True):
+                                if 'last_results_hash' in st.session_state:
+                                    del st.session_state['last_results_hash']
                                 if 'ai_insights' in st.session_state:
                                     del st.session_state['ai_insights']
                                 if 'ai_recommendations' in st.session_state:
                                     del st.session_state['ai_recommendations']
                                 st.rerun()
-                    
-                    if run_analysis:
-                        with st.spinner(f"Generating AI insights using {model_name}..."):
-                            insights = generate_ai_insights(results, api_key, model_id)
-                            
-                            if insights and not insights.startswith("Error"):
-                                st.success(f"✅ AI Insights Generated with {model_name}!")
-                                
-                                # Main insights
-                                with st.container():
-                                    st.markdown("#### 📊 Key Findings")
-                                    st.markdown(insights)
-                                
-                                # Policy recommendations
-                                with st.expander("🎯 Policy Recommendations", expanded=True):
-                                    with st.spinner("Generating policy recommendations..."):
-                                        recommendations = generate_policy_recommendations(results, api_key, model_id)
-                                        if recommendations and not recommendations.startswith("Error"):
-                                            st.markdown(recommendations)
-                                        else:
-                                            st.warning("Could not generate policy recommendations")
-                                
-                                # Save insights to session
-                                st.session_state['ai_insights'] = insights
-                                st.session_state['ai_recommendations'] = recommendations
-                                
-                            elif insights and insights.startswith("Error"):
-                                st.error(insights)
-                                st.info("Tip: Check your API key and try again")
-                            else:
-                                st.warning("No insights generated. Please check your API key.")
-                    
-                    # Display saved insights if they exist
-                    elif 'ai_insights' in st.session_state:
-                        st.success("✅ AI Analysis Complete")
-                        st.markdown("#### 📊 AI Insights")
-                        st.markdown(st.session_state['ai_insights'])
-                        
-                        if 'ai_recommendations' in st.session_state:
-                            with st.expander("🎯 Policy Recommendations", expanded=True):
-                                st.markdown(st.session_state['ai_recommendations'])
+                    else:
+                        st.info("Generating analysis... Please wait.")
                 
                 else:
-                    st.error("⚠️ AI Insights not available. Please configure your Groq API key in the sidebar.")
-                    st.info("Get a free API key at [console.groq.com/keys](https://console.groq.com/keys)")
+                    # Not connected to AI
+                    st.warning("⚠️ AI not connected. Please connect to AI Model in the sidebar to enable insights.")
+                    st.info("Steps: 1) Enter Groq API key in sidebar 2) Click 'Connect to AI Model' 3) Re-run analysis")
+                    if not GROQ_AVAILABLE:
+                        st.error("❌ Groq package not installed. Run: `pip install groq`")
                     with st.expander("Why use AI Insights?"):
                         st.markdown("""
                         AI Insights help you:

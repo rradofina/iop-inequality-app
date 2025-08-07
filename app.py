@@ -215,9 +215,10 @@ def prepare_data(df, apply_age_adjustment=True):
 class ConditionalTree:
     """Conditional Inference Tree for IOP analysis."""
     
-    def __init__(self, min_samples_leaf=50, max_depth=None, random_state=42):
+    def __init__(self, min_samples_leaf=50, max_depth=None, mincriterion=0.99, random_state=42):
         self.min_samples_leaf = min_samples_leaf
         self.max_depth = max_depth
+        self.mincriterion = mincriterion  # Added for R compatibility
         self.random_state = random_state
         self.tree = None
         
@@ -378,14 +379,26 @@ class ConditionalForest:
             'Importance': importance
         }).sort_values('Importance', ascending=False)
 
-def run_ctree_analysis(data, circumstances, outcome='income', weights='weights'):
+def run_ctree_analysis(data, circumstances, outcome='income', weights='weights', params=None):
     """Run C-Tree analysis."""
     X = data[circumstances]
     y = data[outcome].values
     w = data[weights].values if weights in data else None
     
+    # Get parameters from session state or use defaults
+    if params is None:
+        params = st.session_state.get('ctree_params', {})
+    
+    min_samples_leaf = params.get('min_samples_leaf', max(50, int(len(data) * 0.01)))
+    max_depth = params.get('max_depth', None)
+    mincriterion = params.get('mincriterion', 0.99)
+    
     # Fit tree
-    ctree = ConditionalTree(min_samples_leaf=max(50, int(len(data) * 0.01)))
+    ctree = ConditionalTree(
+        min_samples_leaf=min_samples_leaf,
+        max_depth=max_depth,
+        mincriterion=mincriterion
+    )
     ctree.fit(X, y, w)
     
     # Get types
@@ -427,14 +440,26 @@ def run_ctree_analysis(data, circumstances, outcome='income', weights='weights')
         'tree_stats': tree_stats
     }
 
-def run_cforest_analysis(data, circumstances, outcome='income', weights='weights'):
+def run_cforest_analysis(data, circumstances, outcome='income', weights='weights', params=None):
     """Run C-Forest analysis."""
     X = data[circumstances]
     y = data[outcome].values
     w = data[weights].values if weights in data else None
     
+    # Get parameters from session state or use defaults
+    if params is None:
+        params = st.session_state.get('cforest_params', {})
+    
+    n_estimators = params.get('n_estimators', 100)
+    max_features = params.get('max_features', 'sqrt')
+    min_samples_leaf = params.get('min_samples_leaf', max(10, int(len(data) * 0.001)))
+    
     # Fit forest
-    cforest = ConditionalForest(n_estimators=100, min_samples_leaf=max(10, int(len(data) * 0.001)))
+    cforest = ConditionalForest(
+        n_estimators=n_estimators,
+        max_features=max_features,
+        min_samples_leaf=min_samples_leaf
+    )
     cforest.fit(X, y, w)
     
     # Predict smoothed income
@@ -566,6 +591,130 @@ def main():
             n_permutations = st.slider("Shapley permutations", 10, 500, 100)
         else:
             n_permutations = 100
+        
+        st.divider()
+        
+        # Advanced Settings
+        with st.expander("⚙️ Advanced Settings"):
+            st.markdown("### Parameter Configuration")
+            st.info("These parameters match the R implementation and allow fine-tuning of the analysis.")
+            
+            # Reset button
+            if st.button("🔄 Reset to Defaults", use_container_width=True):
+                if 'ctree_params' in st.session_state:
+                    del st.session_state['ctree_params']
+                if 'cforest_params' in st.session_state:
+                    del st.session_state['cforest_params']
+                st.rerun()
+            
+            # C-Tree Parameters
+            if run_ctree:
+                st.subheader("🌳 C-Tree Parameters")
+                
+                ctree_mincriterion = st.slider(
+                    "Minimum Criterion (1-α)",
+                    min_value=0.90,
+                    max_value=0.999,
+                    value=0.99,
+                    step=0.001,
+                    help="Significance level for node splits. Higher values create simpler trees."
+                )
+                
+                ctree_minbucket = st.slider(
+                    "Minimum Bucket Size",
+                    min_value=10,
+                    max_value=200,
+                    value=50,
+                    step=10,
+                    help="Minimum number of observations in terminal nodes."
+                )
+                
+                ctree_maxdepth = st.slider(
+                    "Maximum Tree Depth",
+                    min_value=2,
+                    max_value=20,
+                    value=10,
+                    help="Maximum depth of the tree. Set to 20 for unlimited depth."
+                )
+                if ctree_maxdepth == 20:
+                    ctree_maxdepth = None  # None means unlimited
+                
+                # Store C-Tree params
+                st.session_state['ctree_params'] = {
+                    'mincriterion': ctree_mincriterion,
+                    'min_samples_leaf': ctree_minbucket,
+                    'max_depth': ctree_maxdepth
+                }
+            
+            # C-Forest Parameters
+            if run_cforest:
+                st.subheader("🌲 C-Forest Parameters")
+                
+                cforest_n_estimators = st.slider(
+                    "Number of Trees",
+                    min_value=50,
+                    max_value=500,
+                    value=100,
+                    step=50,
+                    help="Number of trees in the forest. More trees = better accuracy but slower."
+                )
+                
+                cforest_max_features = st.selectbox(
+                    "Max Features per Split",
+                    options=["sqrt", "log2", "0.5", "0.75"],
+                    index=0,
+                    help="Number of features to consider at each split."
+                )
+                
+                cforest_min_samples_leaf = st.slider(
+                    "Min Samples per Leaf",
+                    min_value=5,
+                    max_value=100,
+                    value=10,
+                    step=5,
+                    help="Minimum samples required in leaf nodes."
+                )
+                
+                # Store C-Forest params
+                st.session_state['cforest_params'] = {
+                    'n_estimators': cforest_n_estimators,
+                    'max_features': cforest_max_features if cforest_max_features in ["sqrt", "log2"] else float(cforest_max_features),
+                    'min_samples_leaf': cforest_min_samples_leaf
+                }
+            
+            # Cross-Validation Settings
+            st.subheader("📊 Cross-Validation")
+            
+            cv_folds = st.slider(
+                "Number of CV Folds",
+                min_value=3,
+                max_value=20,
+                value=10,
+                help="Number of folds for cross-validation (if applicable)."
+            )
+            
+            # Visualization Settings
+            st.subheader("🎨 Visualization")
+            
+            normalize_output = st.checkbox(
+                "Normalize Tree Output",
+                value=True,
+                help="Show relative values (normalized to population mean) vs absolute values."
+            )
+            
+            tree_font_size = st.slider(
+                "Tree Font Size",
+                min_value=4,
+                max_value=12,
+                value=10,
+                help="Font size for tree visualization."
+            )
+            
+            # Store visualization params
+            st.session_state['viz_params'] = {
+                'normalize': normalize_output,
+                'font_size': tree_font_size
+            }
     
     # Main content
     if uploaded_file is not None or use_sample:
@@ -632,13 +781,15 @@ def main():
             # C-Tree Analysis
             if run_ctree:
                 with st.spinner("Running C-Tree analysis..."):
-                    ctree_results = run_ctree_analysis(df_clean.copy(), selected_circumstances)
+                    ctree_params = st.session_state.get('ctree_params', None)
+                    ctree_results = run_ctree_analysis(df_clean.copy(), selected_circumstances, params=ctree_params)
                     results['ctree'] = ctree_results
             
             # C-Forest Analysis
             if run_cforest:
                 with st.spinner("Running C-Forest analysis..."):
-                    cforest_results = run_cforest_analysis(df_clean.copy(), selected_circumstances)
+                    cforest_params = st.session_state.get('cforest_params', None)
+                    cforest_results = run_cforest_analysis(df_clean.copy(), selected_circumstances, params=cforest_params)
                     results['cforest'] = cforest_results
             
             # Shapley Decomposition

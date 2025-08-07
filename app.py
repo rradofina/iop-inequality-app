@@ -607,7 +607,7 @@ def run_cforest_analysis(data, circumstances, outcome='income', weights='weights
 # AI INSIGHTS FUNCTIONS
 # ============================================================================
 
-def generate_ai_insights(results, api_key, provider="groq"):
+def generate_ai_insights(results, api_key, model_id="openai/gpt-oss-120b"):
     """Generate AI-powered interpretation of IOP results."""
     if not GROQ_AVAILABLE or not api_key:
         return None
@@ -645,11 +645,14 @@ def generate_ai_insights(results, api_key, provider="groq"):
         Keep the explanation concise and accessible to policymakers.
         """
         
-        if provider == "Groq (Free - Recommended)":
-            client = Groq(api_key=api_key)
+        # Use the selected model or default to GPT-OSS-120B
+        if not model_id:
+            model_id = "openai/gpt-oss-120b"
             
-            completion = client.chat.completions.create(
-                model="llama3-70b-8192",  # Fast and good quality
+        client = Groq(api_key=api_key)
+        
+        completion = client.chat.completions.create(
+            model=model_id,  # Use selected model
                 messages=[
                     {
                         "role": "system", 
@@ -669,7 +672,7 @@ def generate_ai_insights(results, api_key, provider="groq"):
     except Exception as e:
         return f"Error generating insights: {str(e)}"
 
-def generate_policy_recommendations(results, api_key):
+def generate_policy_recommendations(results, api_key, model_id="openai/gpt-oss-120b"):
     """Generate specific policy recommendations based on results."""
     if not GROQ_AVAILABLE or not api_key:
         return None
@@ -694,10 +697,14 @@ def generate_policy_recommendations(results, api_key):
         Be specific and practical.
         """
         
+        # Use same model for consistency
+        if not model_id:
+            model_id = "openai/gpt-oss-120b"
+            
         client = Groq(api_key=api_key)
         
         completion = client.chat.completions.create(
-            model="mixtral-8x7b-32768",  # Good for structured recommendations
+            model=model_id,  # Use selected model
             messages=[
                 {
                     "role": "system",
@@ -967,7 +974,34 @@ def main():
                 if api_key:
                     st.success("✅ AI insights enabled")
                     st.session_state['ai_api_key'] = api_key
-                    st.session_state['ai_provider'] = "Groq (Free - Recommended)"
+                    st.session_state['ai_provider'] = "Groq"
+                    
+                    # Model selection
+                    st.subheader("🤖 Select AI Model")
+                    
+                    model_options = {
+                        "GPT-OSS-120B (OpenAI - Best)": "openai/gpt-oss-120b",
+                        "Llama 3.3 70B (Fast)": "llama-3.3-70b-versatile",
+                        "Mixtral 8x7B (Light)": "mixtral-8x7b-32768"
+                    }
+                    
+                    selected_model_name = st.selectbox(
+                        "Choose Model",
+                        options=list(model_options.keys()),
+                        index=0,
+                        help="GPT-OSS-120B: Best reasoning (500+ t/s)\nLlama 3.3: Fast general purpose\nMixtral: Lightweight and quick"
+                    )
+                    
+                    st.session_state['ai_model'] = model_options[selected_model_name]
+                    st.session_state['ai_model_name'] = selected_model_name
+                    
+                    # Show model info
+                    if "GPT-OSS" in selected_model_name:
+                        st.info("🎆 Using OpenAI's latest open model with strong reasoning capabilities")
+                    elif "Llama" in selected_model_name:
+                        st.info("🦙 Using Meta's Llama 3.3 with balanced performance")
+                    else:
+                        st.info("⚡ Using Mixtral for fast, efficient analysis")
                 else:
                     st.warning("⚠️ Enter API key to enable AI insights")
                 
@@ -1399,23 +1433,37 @@ def main():
                 
                 api_key = st.session_state.get('ai_api_key')
                 ai_provider = st.session_state.get('ai_provider')
+                model_id = st.session_state.get('ai_model', 'openai/gpt-oss-120b')
+                model_name = st.session_state.get('ai_model_name', 'GPT-OSS-120B')
                 
                 if api_key and ai_provider:
-                    # Auto-generate insights on first run or when regenerate is clicked
-                    results_hash = hash(str(sorted(results.keys())))
-                    should_generate = (
-                        'ai_insights' not in st.session_state or 
-                        st.session_state.get('results_hash') != results_hash or
-                        st.button("🔄 Regenerate Insights", use_container_width=False)
-                    )
+                    # Manual button to run AI analysis
+                    col1, col2, col3 = st.columns([2, 2, 1])
+                    with col1:
+                        run_analysis = st.button(
+                            "🤖 Run AI Analysis", 
+                            type="primary", 
+                            use_container_width=True,
+                            help="Generate AI-powered interpretation of your results"
+                        )
+                    with col2:
+                        st.info(f"Using: {model_name}")
+                    with col3:
+                        if 'ai_insights' in st.session_state:
+                            clear_insights = st.button("🗑️ Clear", use_container_width=True)
+                            if clear_insights:
+                                if 'ai_insights' in st.session_state:
+                                    del st.session_state['ai_insights']
+                                if 'ai_recommendations' in st.session_state:
+                                    del st.session_state['ai_recommendations']
+                                st.rerun()
                     
-                    if should_generate:
-                        st.session_state['results_hash'] = results_hash
-                        with st.spinner("Generating AI insights..."):
-                            insights = generate_ai_insights(results, api_key, ai_provider)
+                    if run_analysis:
+                        with st.spinner(f"Generating AI insights using {model_name}..."):
+                            insights = generate_ai_insights(results, api_key, model_id)
                             
                             if insights and not insights.startswith("Error"):
-                                st.success("✅ AI Insights Generated!")
+                                st.success(f"✅ AI Insights Generated with {model_name}!")
                                 
                                 # Main insights
                                 with st.container():
@@ -1423,9 +1471,9 @@ def main():
                                     st.markdown(insights)
                                 
                                 # Policy recommendations
-                                with st.expander("🎯 Policy Recommendations", expanded=False):
+                                with st.expander("🎯 Policy Recommendations", expanded=True):
                                     with st.spinner("Generating policy recommendations..."):
-                                        recommendations = generate_policy_recommendations(results, api_key)
+                                        recommendations = generate_policy_recommendations(results, api_key, model_id)
                                         if recommendations and not recommendations.startswith("Error"):
                                             st.markdown(recommendations)
                                         else:
@@ -1437,16 +1485,18 @@ def main():
                                 
                             elif insights and insights.startswith("Error"):
                                 st.error(insights)
+                                st.info("Tip: Check your API key and try again")
                             else:
                                 st.warning("No insights generated. Please check your API key.")
                     
                     # Display saved insights if they exist
                     elif 'ai_insights' in st.session_state:
-                        st.markdown("#### 📊 Previous AI Insights")
+                        st.success("✅ AI Analysis Complete")
+                        st.markdown("#### 📊 AI Insights")
                         st.markdown(st.session_state['ai_insights'])
                         
                         if 'ai_recommendations' in st.session_state:
-                            with st.expander("🎯 Policy Recommendations", expanded=False):
+                            with st.expander("🎯 Policy Recommendations", expanded=True):
                                 st.markdown(st.session_state['ai_recommendations'])
                 
                 else:

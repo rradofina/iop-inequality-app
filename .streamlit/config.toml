@@ -1,0 +1,26 @@
+[theme]
+# Primary accent color for interactive elements
+primaryColor = "#1f77b4"
+
+# Background color for the main content area
+backgroundColor = "#FFFFFF"
+
+# Background color for sidebar and most interactive widgets
+secondaryBackgroundColor = "#F0F2F6"
+
+# Color used for almost all text
+textColor = "#262730"
+
+# Font family for all text in the app
+font = "sans serif"
+
+[server]
+# Max file upload size (200MB)
+maxUploadSize = 200
+
+# Enable file watching for development
+fileWatcherType = "auto"
+
+[browser]
+# Tab title
+gatherUsageStats = false

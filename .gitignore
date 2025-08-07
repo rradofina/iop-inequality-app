@@ -1,0 +1,31 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+.venv
+*.egg-info/
+
+# Streamlit
+.streamlit/secrets.toml
+*.log
+
+# Data files (keep sample)
+*.xlsx
+*.xls
+!data/2011_NPL.csv
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+
+# Temp files
+tmp/
+temp/

@@ -18,6 +18,7 @@ ENV/
 *.xlsx
 *.xls
 !data/2011_NPL.csv
+!data/cpi_ppp.xlsx
 
 # IDE
 .vscode/

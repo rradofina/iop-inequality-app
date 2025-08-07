@@ -71,28 +71,96 @@ st.markdown("""
         border-radius: 0.5rem;
         margin: 0.5rem 0;
     }
+    
+    /* Larger tab pills */
     .stTabs [data-baseweb="tab-list"] {
-        gap: 8px;
+        gap: 12px;
     }
     .stTabs [data-baseweb="tab"] {
-        height: 50px;
+        height: 60px;
         white-space: pre-wrap;
         background-color: #f0f2f6;
-        border-radius: 25px;
-        padding: 10px 20px;
-        font-weight: 600;
+        border-radius: 30px;
+        padding: 15px 25px;
+        font-weight: 700;
+        font-size: 1.1rem !important;
     }
     .stTabs [aria-selected="true"] {
         background-color: #1f77b4;
         color: white;
     }
+    
+    /* Larger metric labels */
+    [data-testid="metric-container"] {
+        margin: 0.5rem 0;
+    }
+    [data-testid="metric-container"] label {
+        font-size: 1.1rem !important;
+        font-weight: 600 !important;
+        color: #333 !important;
+    }
+    [data-testid="metric-container"] [data-testid="stMetricValue"] {
+        font-size: 1.8rem !important;
+        font-weight: 700 !important;
+    }
+    [data-testid="metric-container"] [data-testid="stMetricLabel"] {
+        font-size: 1.1rem !important;
+        font-weight: 600 !important;
+    }
+    
+    /* Larger headers and subheaders */
+    .stMarkdown h2 {
+        font-size: 1.8rem !important;
+        font-weight: 700 !important;
+        margin-top: 1.5rem;
+        margin-bottom: 1rem;
+    }
+    .stMarkdown h3 {
+        font-size: 1.4rem !important;
+        font-weight: 600 !important;
+        margin-top: 1.2rem;
+        margin-bottom: 0.8rem;
+    }
+    .stMarkdown h4 {
+        font-size: 1.2rem !important;
+        font-weight: 600 !important;
+    }
+    
+    /* Larger multiselect and selectbox labels */
+    .stMultiSelect label, .stSelectbox label {
+        font-size: 1.15rem !important;
+        font-weight: 600 !important;
+        color: #333 !important;
+    }
+    
+    /* Better table spacing */
+    .dataframe {
+        font-size: 1.05rem !important;
+    }
+    .dataframe th {
+        font-weight: 700 !important;
+        padding: 10px !important;
+    }
+    .dataframe td {
+        padding: 8px !important;
+    }
+    
+    /* Tree rule styling */
     .tree-rule {
         background-color: #f8f9fa;
         border-left: 4px solid #1f77b4;
-        padding: 10px 15px;
-        margin: 10px 0;
+        padding: 12px 18px;
+        margin: 12px 0;
         border-radius: 4px;
         font-family: monospace;
+        font-size: 1rem;
+    }
+    
+    /* Larger button text */
+    .stButton button {
+        font-size: 1.05rem !important;
+        font-weight: 600 !important;
+        padding: 0.5rem 1rem !important;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -389,12 +457,19 @@ class ConditionalTree:
         depth = self.tree.get_depth()
         
         # Safety check: prevent visualization of extremely large trees
-        MAX_NODES = 200  # Increased from 100
-        MAX_DEPTH = 20   # Increased from 15
+        MAX_NODES = 500  # Increased limit
+        MAX_DEPTH = 25   # Increased limit
         
-        if n_nodes > MAX_NODES or depth > MAX_DEPTH:
+        # If tree is too large and no simplification requested, return None
+        if (n_nodes > MAX_NODES or depth > MAX_DEPTH) and max_depth_display is None:
             # Return None to indicate tree is too large to visualize
             return None
+        
+        # If max_depth_display is set, we can try to show a simplified version
+        if max_depth_display and depth > max_depth_display:
+            actual_depth = max_depth_display
+        else:
+            actual_depth = None
         
         # Improved size calculation based on tree structure
         # Use logarithmic scaling for very large trees
@@ -1576,6 +1651,12 @@ def main():
                             'Mean Income': list(ctree_results['type_means'].values())
                         })
                         fig = px.bar(type_df, x='Type', y='Mean Income', title="Mean Income by Type")
+                        fig.update_layout(
+                            font=dict(size=14),
+                            title_font_size=18,
+                            xaxis=dict(title_font_size=16, tickfont_size=14),
+                            yaxis=dict(title_font_size=16, tickfont_size=14)
+                        )
                         st.plotly_chart(fig, use_container_width=True)
                         
                         # Income distribution by type
@@ -1585,6 +1666,12 @@ def main():
                             fig_box = px.box(data_types, x='types', y='income', 
                                             title="Income Distribution Across Types",
                                             labels={'types': 'Type', 'income': 'Income'})
+                            fig_box.update_layout(
+                                font=dict(size=14),
+                                title_font_size=18,
+                                xaxis=dict(title_font_size=16, tickfont_size=14),
+                                yaxis=dict(title_font_size=16, tickfont_size=14)
+                            )
                             st.plotly_chart(fig_box, use_container_width=True)
                 
                 tab_idx += 1
@@ -1616,7 +1703,13 @@ def main():
                                                title="Circumstance Importance in Random Forest",
                                                color='Importance',
                                                color_continuous_scale='Viridis')
-                        fig_importance.update_layout(height=400)
+                        fig_importance.update_layout(
+                            height=400,
+                            font=dict(size=14),
+                            title_font_size=18,
+                            xaxis=dict(title_font_size=16, tickfont_size=14),
+                            yaxis=dict(title_font_size=16, tickfont_size=14)
+                        )
                         st.plotly_chart(fig_importance, use_container_width=True)
                         
                         # Table
@@ -1652,6 +1745,12 @@ def main():
                             color='Contribution (%)',
                             color_continuous_scale='Blues'
                         )
+                        fig_bar.update_layout(
+                            font=dict(size=14),
+                            title_font_size=18,
+                            xaxis=dict(title_font_size=16, tickfont_size=14),
+                            yaxis=dict(title_font_size=16, tickfont_size=14)
+                        )
                         st.plotly_chart(fig_bar, use_container_width=True)
                     
                     with col2:
@@ -1662,6 +1761,11 @@ def main():
                             names='Circumstance',
                             title="Relative Contributions"
                         )
+                        fig_pie.update_layout(
+                            font=dict(size=14),
+                            title_font_size=18
+                        )
+                        fig_pie.update_traces(textfont_size=14)
                         st.plotly_chart(fig_pie, use_container_width=True)
                     
                     # Table
@@ -1748,13 +1852,15 @@ def main():
                         # Regenerate button
                         col1, col2 = st.columns([3, 1])
                         with col2:
-                            if st.button("🔄 Regenerate", use_container_width=True):
+                            if st.button("🔄 Regenerate", use_container_width=True, key="regenerate_insights"):
                                 if 'last_results_hash' in st.session_state:
                                     del st.session_state['last_results_hash']
                                 if 'ai_insights' in st.session_state:
                                     del st.session_state['ai_insights']
                                 if 'ai_recommendations' in st.session_state:
                                     del st.session_state['ai_recommendations']
+                                # Preserve tab selection
+                                st.session_state['selected_tab'] = len(tabs) - 1  # Summary is last tab
                                 st.rerun()
                     else:
                         st.info("Generating analysis... Please wait.")

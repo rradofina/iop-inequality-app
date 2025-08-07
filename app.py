@@ -18,6 +18,7 @@ from math import factorial
 import time
 import io
 import json
+import os
 
 warnings.filterwarnings('ignore')
 
@@ -243,28 +244,51 @@ class ConditionalTree:
         return self.tree.apply(X_encoded.values)
     
     def get_tree_plot(self, feature_names):
-        """Generate tree visualization."""
-        # Calculate better figure size based on tree depth
+        """Generate tree visualization with safety checks."""
+        # Get tree complexity metrics
         n_nodes = self.tree.tree_.node_count
         depth = self.tree.get_depth()
         
-        # Adjust figure size based on tree complexity
-        width = max(20, n_nodes * 2)
-        height = max(10, depth * 3)
+        # Safety check: prevent visualization of very large trees
+        MAX_NODES = 100
+        MAX_DEPTH = 15
         
-        fig, ax = plt.subplots(figsize=(width, height), dpi=80)
-        plot_tree(self.tree, 
-                 feature_names=feature_names, 
-                 filled=True, 
-                 rounded=True, 
-                 ax=ax, 
-                 fontsize=12,
-                 proportion=True,  # Show proportions
-                 precision=2,  # Decimal precision
-                 impurity=False)  # Don't show impurity to save space
+        if n_nodes > MAX_NODES or depth > MAX_DEPTH:
+            # Return None to indicate tree is too large to visualize
+            return None
         
-        plt.tight_layout()
-        return fig
+        # Calculate figure size with stricter limits to prevent DecompressionBombError
+        # Maximum total pixels: width * height * dpi^2 should be < 178956970 (PIL limit)
+        # Using conservative limits: max 15x10 inches at 50 DPI = 750x500 = 375,000 pixels
+        width = min(15, max(8, n_nodes * 0.15))  # Much smaller than before
+        height = min(10, max(5, depth * 1.5))  # Much smaller than before
+        dpi = 50  # Lower DPI to further reduce size
+        
+        # Additional safety check for total pixel count
+        total_pixels = (width * dpi) * (height * dpi)
+        if total_pixels > 2_000_000:  # Conservative limit well below PIL's bomb threshold
+            # Scale down if still too large
+            scale_factor = (2_000_000 / total_pixels) ** 0.5
+            width *= scale_factor
+            height *= scale_factor
+        
+        try:
+            fig, ax = plt.subplots(figsize=(width, height), dpi=dpi)
+            plot_tree(self.tree, 
+                     feature_names=feature_names, 
+                     filled=True, 
+                     rounded=True, 
+                     ax=ax, 
+                     fontsize=10,  # Smaller font
+                     proportion=True,
+                     precision=2,
+                     impurity=False)
+            
+            plt.tight_layout()
+            return fig
+        except Exception as e:
+            # If any error occurs during plotting, return None
+            return None
     
     def get_tree_rules(self, feature_names):
         """Extract tree rules as text."""
@@ -382,6 +406,13 @@ def run_ctree_analysis(data, circumstances, outcome='income', weights='weights')
     gini_smoothed = weighted_gini(data['y_tilde'].values, w)
     mld_smoothed = weighted_mld(data['y_tilde'].values, w)
     
+    # Get tree statistics for UI display
+    tree_stats = {
+        'n_nodes': ctree.tree.tree_.node_count,
+        'depth': ctree.tree.get_depth(),
+        'n_features': len(circumstances)
+    }
+    
     return {
         'n_types': len(type_means),
         'gini_total': gini_total,
@@ -392,7 +423,8 @@ def run_ctree_analysis(data, circumstances, outcome='income', weights='weights')
         'iop_mld_relative': mld_smoothed / mld_total if mld_total > 0 else 0,
         'type_means': type_means.to_dict(),
         'model': ctree,
-        'data_with_types': data
+        'data_with_types': data,
+        'tree_stats': tree_stats
     }
 
 def run_cforest_analysis(data, circumstances, outcome='income', weights='weights'):
@@ -539,12 +571,15 @@ def main():
     if uploaded_file is not None or use_sample:
         # Load data
         if use_sample:
-            # Load sample data
+            # Load sample data with proper path handling
             try:
-                df = pd.read_csv('data/2011_NPL.csv')
+                # Get the directory where the app.py file is located
+                app_dir = os.path.dirname(os.path.abspath(__file__))
+                sample_data_path = os.path.join(app_dir, 'data', '2011_NPL.csv')
+                df = pd.read_csv(sample_data_path)
                 st.success("Sample data loaded successfully!")
-            except:
-                st.error("Sample data file not found. Please upload your own data.")
+            except Exception as e:
+                st.error(f"Sample data file not found. Please upload your own data. Error: {str(e)}")
                 return
         else:
             # Load uploaded file
@@ -587,6 +622,10 @@ def main():
         # Run analysis button
         if st.button("🚀 Run Analysis", type="primary", use_container_width=True):
             
+            # Clear previous results from session state
+            if 'analysis_results' in st.session_state:
+                del st.session_state['analysis_results']
+            
             # Results container
             results = {}
             
@@ -613,16 +652,24 @@ def main():
                     'relative': relative_shapley
                 }
             
-            # Display results
+            # Store results in session state
+            st.session_state['analysis_results'] = results
+            st.session_state['selected_circumstances'] = selected_circumstances
+        
+        # Display results if they exist in session state
+        if 'analysis_results' in st.session_state:
+            results = st.session_state['analysis_results']
+            selected_circumstances = st.session_state.get('selected_circumstances', selected_circumstances)
+            
             st.header("📊 Results")
             
             # Create tabs for different results
             tabs = []
-            if run_ctree:
+            if 'ctree' in results:
                 tabs.append("🌳 C-Tree")
-            if run_cforest:
+            if 'cforest' in results:
                 tabs.append("🌲 C-Forest")
-            if run_shapley:
+            if 'shapley' in results:
                 tabs.append("🎲 Shapley")
             tabs.append("📊 Summary")
             
@@ -630,8 +677,9 @@ def main():
             tab_idx = 0
             
             # C-Tree Results
-            if run_ctree:
+            if 'ctree' in results:
                 with tab_objects[tab_idx]:
+                    ctree_results = results['ctree']  # Get ctree results
                     st.markdown("### 🌳 Conditional Inference Tree Results")
                     
                     col1, col2, col3, col4 = st.columns(4)
@@ -651,27 +699,68 @@ def main():
                     # Tree Visualization - Better Options
                     st.subheader("🌳 Decision Tree Structure")
                     
+                    # Display tree statistics if available
+                    if 'tree_stats' in ctree_results:
+                        stats = ctree_results['tree_stats']
+                        st.info(f"📊 Tree Statistics: {stats['n_nodes']} nodes, depth={stats['depth']}, features={stats['n_features']}")
+                    
                     # Add visualization type selector
                     viz_type = st.radio(
                         "Select visualization type:",
                         ["Tree Diagram", "Text Rules"],
-                        horizontal=True
+                        horizontal=True,
+                        key="viz_type_selector"  # Add key for state management
                     )
                     
                     if viz_type == "Tree Diagram":
-                        st.info("💡 Tip: The tree shows how the population is split into types based on circumstances. Each box represents a decision or type.")
+                        # Try to create tree plot
+                        tree_fig = ctree_results['model'].get_tree_plot(selected_circumstances)
                         
-                        # Create a container with horizontal scroll for large trees
-                        with st.container():
-                            tree_fig = ctree_results['model'].get_tree_plot(selected_circumstances)
+                        if tree_fig is None:
+                            # Tree is too large or error occurred
+                            st.warning("⚠️ Tree is too large to visualize as a diagram.")
+                            st.info("The tree structure is too complex for visual rendering. Please use 'Text Rules' view to explore the decision paths.")
                             
-                            # Check if tree is large
-                            if ctree_results['n_types'] > 8:
-                                st.warning("⚠️ Large tree detected. You can scroll horizontally to see all branches.")
-                                # Use columns to create scrollable area
+                            # Automatically show text rules as fallback
+                            st.write("**Showing text rules instead:**")
+                            rules = ctree_results['model'].get_tree_rules(selected_circumstances)
+                            leaf_rules = [r for r in rules if r.get('is_leaf', False)]
+                            
+                            for i, rule in enumerate(leaf_rules[:10]):
+                                clean_rule = rule['rule'].replace("Root AND ", "")
+                                st.markdown(f"""
+                                <div class="tree-rule">
+                                <strong>Type {i+1}</strong><br>
+                                Rule: {clean_rule}<br>
+                                Mean Income: ${rule['value']:.2f}<br>
+                                Samples: {rule['samples']}
+                                </div>
+                                """, unsafe_allow_html=True)
+                            
+                            if len(leaf_rules) > 10:
+                                st.info(f"Showing first 10 types out of {len(leaf_rules)} total")
+                        else:
+                            # Successfully created tree plot
+                            st.info("💡 Tip: The tree shows how the population is split into types based on circumstances.")
+                            try:
                                 st.pyplot(tree_fig, use_container_width=False)
-                            else:
-                                st.pyplot(tree_fig, use_container_width=True)
+                                plt.close(tree_fig)  # Close figure to free memory
+                            except Exception as e:
+                                st.error("Failed to display tree diagram. Switching to text view.")
+                                # Fallback to text rules
+                                rules = ctree_results['model'].get_tree_rules(selected_circumstances)
+                                leaf_rules = [r for r in rules if r.get('is_leaf', False)]
+                                
+                                for i, rule in enumerate(leaf_rules[:10]):
+                                    clean_rule = rule['rule'].replace("Root AND ", "")
+                                    st.markdown(f"""
+                                    <div class="tree-rule">
+                                    <strong>Type {i+1}</strong><br>
+                                    Rule: {clean_rule}<br>
+                                    Mean Income: ${rule['value']:.2f}<br>
+                                    Samples: {rule['samples']}
+                                    </div>
+                                    """, unsafe_allow_html=True)
                         
                     elif viz_type == "Text Rules":
                         st.write("**Decision rules for each type:**")
@@ -679,6 +768,18 @@ def main():
                         
                         # Display only leaf nodes (types)
                         leaf_rules = [r for r in rules if r.get('is_leaf', False)]
+                        
+                        # Add download button for rules
+                        rules_text = "\n\n".join([
+                            f"Type {i+1}\nRule: {rule['rule'].replace('Root AND ', '')}\nMean Income: ${rule['value']:.2f}\nSamples: {rule['samples']}"
+                            for i, rule in enumerate(leaf_rules)
+                        ])
+                        st.download_button(
+                            label="📥 Download All Rules (TXT)",
+                            data=rules_text,
+                            file_name="tree_rules.txt",
+                            mime="text/plain"
+                        )
                         
                         for i, rule in enumerate(leaf_rules[:10]):  # Show max 10 types
                             clean_rule = rule['rule'].replace("Root AND ", "")
@@ -692,7 +793,7 @@ def main():
                             """, unsafe_allow_html=True)
                             
                         if len(leaf_rules) > 10:
-                            st.info(f"Showing first 10 types out of {len(leaf_rules)} total")
+                            st.info(f"Showing first 10 types out of {len(leaf_rules)} total. Download the file above to see all rules.")
                     
                     # Type distribution
                     if ctree_results['n_types'] <= 20:
@@ -716,7 +817,7 @@ def main():
                 tab_idx += 1
             
             # C-Forest Results
-            if run_cforest:
+            if 'cforest' in results:
                 with tab_objects[tab_idx]:
                     st.markdown("### 🌲 Conditional Random Forest Results")
                     
@@ -751,9 +852,13 @@ def main():
                 tab_idx += 1
             
             # Shapley Results
-            if run_shapley:
+            if 'shapley' in results:
                 with tab_objects[tab_idx]:
                     st.markdown("### 🎲 Shapley Value Decomposition")
+                    
+                    # Get shapley values from results
+                    shapley_values = results['shapley']['values']
+                    relative_shapley = results['shapley']['relative']
                     
                     # Create visualizations
                     shapley_df = pd.DataFrame({
@@ -802,7 +907,8 @@ def main():
                 
                 summary_data = []
                 
-                if run_ctree:
+                if 'ctree' in results:
+                    ctree_results = results['ctree']
                     summary_data.append({
                         'Method': 'C-Tree',
                         'IOP (Gini)': f"{ctree_results['iop_gini_relative']:.1%}",
@@ -810,7 +916,8 @@ def main():
                         'Types': ctree_results['n_types']
                     })
                 
-                if run_cforest:
+                if 'cforest' in results:
+                    cforest_results = results['cforest']
                     summary_data.append({
                         'Method': 'C-Forest',
                         'IOP (Gini)': f"{cforest_results['iop_gini_relative']:.1%}",

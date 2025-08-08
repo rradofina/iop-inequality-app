@@ -40,11 +40,11 @@ st.set_page_config(
 # Custom CSS
 st.markdown("""
 <style>
-    /* Increase sidebar width */
-    section[data-testid="stSidebar"] {
+    /* Increase sidebar width only when expanded */
+    section[data-testid="stSidebar"][aria-expanded="true"] {
         width: 400px !important;
     }
-    section[data-testid="stSidebar"] > div {
+    section[data-testid="stSidebar"][aria-expanded="true"] > div {
         width: 400px !important;
     }
     

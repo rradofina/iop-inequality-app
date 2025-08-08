@@ -1091,7 +1091,12 @@ def main():
         )
         
         # Sample data option
-        use_sample = st.checkbox("Use sample data (Nepal 2011)", value=False)
+        use_sample = st.checkbox(
+            "Use sample data (Nepal 2011)", 
+            value=False,
+            disabled=uploaded_file is not None,
+            help="Sample data is automatically disabled when you upload your own file"
+        )
         
         st.divider()
         

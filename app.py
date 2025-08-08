@@ -405,12 +405,27 @@ def prepare_data(df, apply_age_adjustment=True, cpi_ppp_file=None, apply_ppp=Fal
     # Drop missing values
     df = df.dropna()
     
-    # Identify circumstance variables
+    # Identify circumstance variables dynamically
+    # Define columns that are NOT circumstances (core/system columns)
+    core_columns = {
+        'id', 'year', 'cntry', 'income', 'loginc', 'weights',
+        'age', 'age2', 'income_adjusted', 'income_local', 'y_tilde',
+        'hh_income_pc', 'hh_weight', 'y_tilde_rf', 'types'
+    }
+    
+    # Convert to lowercase for case-insensitive comparison
+    core_columns_lower = {col.lower() for col in core_columns}
+    
+    # Auto-detect all other columns as potential circumstances
     potential_circumstances = []
-    for col in ['Sex', 'Father_Edu', 'Mother_Edu', 'Birth_Area', 'Religion']:
-        if col in df.columns:
+    for col in df.columns:
+        if col.lower() not in core_columns_lower:
             potential_circumstances.append(col)
+            # Convert to categorical for tree-based methods
             df[col] = pd.Categorical(df[col])
+    
+    # Sort circumstances alphabetically for consistent ordering
+    potential_circumstances.sort()
     
     return df, potential_circumstances, ppp_info
 

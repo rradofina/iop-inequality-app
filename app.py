@@ -345,37 +345,16 @@ def prepare_data(df, apply_age_adjustment=True, cpi_ppp_file=None, apply_ppp=Fal
     if apply_ppp and cpi_ppp_file is not None:
         df, ppp_info = load_and_apply_ppp_adjustment(df, cpi_ppp_file)
     
-    # Handle column naming
-    column_mapping = {
-        'hh_income_pc': 'income',
-        'sex': 'Sex',
-        'religion_hh_head': 'Religion', 
-        'birth_AD': 'Birth_Area',
-        'fathers_education_revised': 'Father_Edu',
-        'mothers_education_revised': 'Mother_Edu',
-        'hh_weight': 'weights'
-    }
-    
-    for old_col, new_col in column_mapping.items():
-        if old_col in df.columns:
-            df = df.rename(columns={old_col: new_col})
+    # Handle essential column naming for backward compatibility
+    # Only map the absolutely essential columns
+    if 'hh_income_pc' in df.columns and 'income' not in df.columns:
+        df = df.rename(columns={'hh_income_pc': 'income'})
+    if 'hh_weight' in df.columns and 'weights' not in df.columns:
+        df = df.rename(columns={'hh_weight': 'weights'})
     
     # Add weights if missing
     if 'weights' not in df.columns:
         df['weights'] = 1.0
-    
-    # Clean data
-    if 'Father_Edu' in df.columns:
-        df = df[df['Father_Edu'] != 0]
-    if 'Mother_Edu' in df.columns:
-        df = df[df['Mother_Edu'] != 0]
-    
-    # Transform variables
-    if 'Sex' in df.columns:
-        df['Sex'] = df['Sex'].apply(lambda x: 0 if x == 2 else (1 if x == 1 else x))
-    
-    if 'Religion' in df.columns:
-        df['Religion'] = df['Religion'].apply(lambda x: 6 if x in [7, 8, 9] else x)
     
     # Add derived columns
     df['loginc'] = np.log(df['income'] + 1)
